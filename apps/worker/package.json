@@ -1,0 +1,17 @@
+{
+  "name": "@cf-relay/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cf-relay/core": "0.1.0",
+    "@cf-relay/runtime-cloudflare": "0.1.0",
+    "@cf-relay/provider-slack": "0.1.0",
+    "@cf-relay/provider-discord": "0.1.0",
+    "@cf-relay/provider-email": "0.1.0",
+    "@cf-relay/email-cloudflare": "0.1.0",
+    "@cf-relay/email-resend": "0.1.0",
+    "@cf-relay/policies": "0.1.0",
+    "zod": "4.6.5"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "cf-relay-tests",
+  "main": "../../apps/worker/src/index.ts",
+  "compatibility_date": "2026-10-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "queues": {
+    "producers": [
+      { "binding": "DELIVERIES", "queue": "cf-relay-deliveries" },
+      { "binding": "FAILURES", "queue": "cf-relay-failures" }
+    ],
+    "consumers": [
+      {
+        "queue": "cf-relay-deliveries",
+        "max_retries": 1,
+        "dead_letter_queue": "cf-relay-failures"
+      }
+    ]
+  },
+  "send_email": [{ "name": "EMAIL" }],
+  "ratelimits": [
+    {
+      "name": "FORM_RATE_LIMIT",
+      "namespace_id": "1001",
+      "simple": { "limit": 20, "period": 60 }
+    }
+  ],
+  "vars": {
+    "ENGINEERING_SLACK_WEBHOOK_V1": "https://hooks.slack.com/services/TTEST/BTEST/FAKEONLY",
+    "COMMUNITY_DISCORD_WEBHOOK_V1": "https://discord.com/api/webhooks/123/FAKEONLY",
+    "TURNSTILE_SECRET": "fake-test-only",
+    "SERVER_API_KEY": "fake-test-only"
+  }
+}

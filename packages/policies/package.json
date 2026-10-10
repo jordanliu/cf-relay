@@ -1,0 +1,15 @@
+{
+  "name": "@cf-relay/policies",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@cf-relay/policy-turnstile": "0.1.0",
+    "@cf-relay/policy-honeypot": "0.1.0",
+    "@cf-relay/policy-rate-limit": "0.1.0",
+    "@cf-relay/policy-api-key": "0.1.0"
+  }
+}

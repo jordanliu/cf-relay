@@ -1,0 +1,13 @@
+{
+  "name": "@cf-relay/runtime-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@cf-relay/core": "0.1.0",
+    "hono": "4.13.13"
+  }
+}

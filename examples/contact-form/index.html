@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Contact example — cf-relay</title>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <style>
+      body { max-width: 40rem; margin: 3rem auto; padding: 1rem; font: 1rem system-ui; }
+      label { display: block; margin: 1rem 0; }
+      input, textarea { display: block; width: 100%; box-sizing: border-box; padding: .6rem; }
+      .honeypot { position: absolute; left: -10000px; }
+    </style>
+  </head>
+  <body>
+    <h1>Contact us</h1>
+    <p>Replace the endpoint and public Turnstile site key; configure this page’s origin and hostname in the Worker.</p>
+    <form method="post" action="https://submit.example.com/v1/forms/contact">
+      <label>Name <input name="name" maxlength="80" autocomplete="name" required></label>
+      <label>Email <input name="email" type="email" autocomplete="email" required></label>
+      <label>Message <textarea name="message" maxlength="5000" rows="8" required></textarea></label>
+      <label class="honeypot" aria-hidden="true">Leave empty <input name="website" tabindex="-1" autocomplete="off"></label>
+      <div class="cf-turnstile" data-sitekey="YOUR_PUBLIC_SITE_KEY" data-action="contact"></div>
+      <button type="submit">Submit</button>
+    </form>
+    <p>A queued response confirms acceptance by the relay Queue. It does not confirm delivery to a person. Retrying after an uncertain error may duplicate notifications.</p>
+  </body>
+</html>
