@@ -1,5 +1,8 @@
 import type { Guard } from "@cf-relay/core";
-export function honeypot(options: { field: string }): Guard {
+export function honeypot(options: {
+  field: string;
+}): Guard & { readonly type: "honeypot" } {
+  options = Object.freeze({ ...options });
   return {
     type: "honeypot",
     phase: "bot",

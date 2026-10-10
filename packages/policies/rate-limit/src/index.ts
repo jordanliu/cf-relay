@@ -1,5 +1,8 @@
 import type { Guard } from "@cf-relay/core";
-export function rateLimit(options: { binding: string }): Guard {
+export function rateLimit(options: {
+  binding: string;
+}): Guard & { readonly type: "rate-limit" } {
+  options = Object.freeze({ ...options });
   return {
     type: "rate-limit",
     phase: "rate",

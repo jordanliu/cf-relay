@@ -9,7 +9,11 @@ export function turnstile(options: {
   secret: SecretRef;
   expectedHostname: string;
   expectedAction?: string;
-}): Guard {
+}): Guard & { readonly type: "turnstile" } {
+  options = Object.freeze({
+    ...options,
+    secret: Object.freeze({ ...options.secret }),
+  });
   if (!options.expectedHostname || /[/:\s]/.test(options.expectedHostname))
     throw new Error("Turnstile requires an expected hostname");
   return {

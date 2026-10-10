@@ -48,6 +48,7 @@ export async function consumeQueue(
     logger: Logger;
     secretReader: SecretReader;
     dependencies: Record<string, object>;
+    getDependencies?: (type: string) => object;
     failureSink: FailureSink;
     timeoutMs?: number;
   },

@@ -3,12 +3,14 @@ import {
   defineForm,
   defineForms,
   defineProviders,
+  defineRelay,
   type ProviderDependencies,
   secret,
 } from "@cf-relay/core";
 import { discordProvider } from "@cf-relay/provider-discord";
 import { emailProvider } from "@cf-relay/provider-email";
 import { slackProvider } from "@cf-relay/provider-slack";
+import type { ProviderDependencyFactories } from "@cf-relay/runtime-cloudflare";
 import { z } from "zod";
 
 const providers = defineProviders([
@@ -102,3 +104,35 @@ const extraEmailFields = {
 } as const;
 // @ts-expect-error Slack rejects extra email configuration even with a valid webhook.
 defineDestinations(providers, extraEmailFields);
+
+const unprotectedRelay = {
+  providers,
+  destinations,
+  forms: {
+    open: defineForm({
+      schema: z.object({ text: z.string() }),
+      destinations: ["chat"],
+      message: ({ data }) => ({ text: data.text }),
+    }),
+  },
+};
+// @ts-expect-error A statically unprotected form requires explicit unsafe opt-out.
+defineRelay(unprotectedRelay);
+const unsafeRelay = {
+  providers,
+  destinations,
+  forms: {
+    open: defineForm({
+      schema: z.object({ text: z.string() }),
+      unsafeAllowUnprotected: true,
+      destinations: ["chat"],
+      message: ({ data }) => ({ text: data.text }),
+    }),
+  },
+};
+defineRelay(unsafeRelay);
+
+// @ts-expect-error Email transport factories are required by runtime composition.
+const missingFactory: ProviderDependencyFactories<object, typeof providers> =
+  {};
+void missingFactory;

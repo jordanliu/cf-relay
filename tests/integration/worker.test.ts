@@ -77,6 +77,42 @@ describe("real Workers runtime and Queue settlement", () => {
     expect(messages[0]?.contentType).toBe("json");
     expect(JSON.stringify(messages)).not.toContain("fake-test-only");
   });
+  it("accepts Slack-only forms without an unrelated email capability", async () => {
+    const spy = vi.spyOn(env.DELIVERIES, "sendBatch");
+    const { EMAIL: _email, ...bindings } = env;
+    const response = await request(
+      "/v1/forms/events",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer fake-test-only",
+        },
+        body: JSON.stringify({ event: "test", details: "offline" }),
+      },
+      bindings as WorkerEnv,
+    );
+    expect(response.status).toBe(202);
+    expect(spy).toHaveBeenCalledOnce();
+  });
+  it("rejects missing failure producer before publication", async () => {
+    const spy = vi.spyOn(env.DELIVERIES, "sendBatch");
+    const { FAILURES: _failure, ...bindings } = env;
+    const response = await request(
+      "/v1/forms/events",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer fake-test-only",
+        },
+        body: JSON.stringify({ event: "test", details: "offline" }),
+      },
+      bindings as WorkerEnv,
+    );
+    expect(response.status).toBe(503);
+    expect(spy).not.toHaveBeenCalled();
+  });
   it("rejects unsupported media, oversize, invalid fields, auth and missing secrets with zero Queue writes", async () => {
     const spy = vi.spyOn(env.DELIVERIES, "sendBatch");
     const headers = {

@@ -7,6 +7,7 @@ import {
   defineForms,
   defineProviders,
   defineRelay,
+  type Guard,
   secret,
 } from "@cf-relay/core";
 import { apiKey, honeypot, rateLimit, turnstile } from "@cf-relay/policies";
@@ -17,6 +18,70 @@ import { describe, expect, it } from "vitest";
 import { fixture } from "./fixtures";
 
 describe("configuration", () => {
+  it.each(["false", "true", 0, 1, {}, []])(
+    "rejects non-boolean unsafe opt-out: %j",
+    (value) => {
+      const { config } = fixture();
+      expect(() =>
+        defineRelay({
+          ...config,
+          forms: {
+            contact: { ...config.forms.contact, unsafeAllowUnprotected: value },
+          },
+        } as any),
+      ).toThrow(/boolean/);
+    },
+  );
+  it("snapshots forms, metadata arrays, origins and destinations", () => {
+    const { config } = fixture();
+    const guards = [apiKey({ secret: secret("KEY") })];
+    const origins = ["https://example.com"];
+    const targets = ["target"];
+    const original = {
+      ...config.forms.contact,
+      guards,
+      allowedOrigins: origins,
+      destinations: targets,
+      unsafeAllowUnprotected: false,
+    };
+    const validated = defineRelay({ ...config, forms: { contact: original } });
+    guards.splice(0);
+    origins[0] = "https://evil.example";
+    targets.splice(0);
+    original.unsafeAllowUnprotected = true;
+    expect(validated.forms.contact.guards).toHaveLength(1);
+    expect(validated.forms.contact.allowedOrigins).toEqual([
+      "https://example.com",
+    ]);
+    expect(validated.forms.contact.destinations).toEqual(["target"]);
+    expect(validated.forms.contact.unsafeAllowUnprotected).toBe(false);
+    expect(Object.isFrozen(validated.forms.contact)).toBe(true);
+    expect(Object.isFrozen(validated.forms.contact.guards?.[0]?.fields)).toBe(
+      true,
+    );
+  });
+  it("preserves class guard prototype methods and private receiver state", async () => {
+    class ClassGuard implements Guard {
+      type = "api-key";
+      phase = "auth" as const;
+      fields = [];
+      #allowed = false;
+      async check() {
+        return { allowed: this.#allowed, status: 401 as const };
+      }
+    }
+    const { config } = fixture();
+    const validated = defineRelay({
+      ...config,
+      forms: {
+        contact: { ...config.forms.contact, guards: [new ClassGuard()] },
+      },
+    });
+    expect(await validated.forms.contact.guards?.[0]?.check()).toEqual({
+      allowed: false,
+      status: 401,
+    });
+  });
   it("rejects duplicate provider types and duplicate destination entries", () => {
     expect(() => defineProviders([slackProvider(), slackProvider()])).toThrow(
       /duplicate provider/,
@@ -87,7 +152,7 @@ describe("configuration", () => {
         defineRelay({
           ...config,
           forms: {
-            contact: { ...base, unsafeAllowUnprotected: false, guards },
+            contact: { ...base, unsafeAllowUnprotected: false, guards } as any,
           },
         }),
       ).toThrow(/protection/);

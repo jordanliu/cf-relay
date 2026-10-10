@@ -34,12 +34,14 @@ type CheckedDestinations<
 export interface FormDefinition<
   T,
   D extends readonly string[] = readonly string[],
+  G extends readonly Guard[] = readonly Guard[],
+  Unsafe extends boolean = boolean,
 > {
   schema: Schema<T>;
   destinations: D;
   allowedOrigins?: readonly string[];
-  guards?: readonly Guard[];
-  unsafeAllowUnprotected?: boolean;
+  guards?: G;
+  unsafeAllowUnprotected?: Unsafe;
   message(submission: Submission<T>): RelayMessage;
 }
 export type AnyForm = FormDefinition<any>;
@@ -121,13 +123,35 @@ export function defineDestinationEntries<
     readonly [E in Entries[number] as E[0]]: E[1];
   };
 }
-export function defineForm<T, const D extends readonly string[]>(
-  form: FormDefinition<T, D>,
-): FormDefinition<T, D> {
+export function defineForm<
+  T,
+  const D extends readonly string[],
+  const G extends readonly Guard[] = readonly [],
+  const Unsafe extends boolean = false,
+>(form: FormDefinition<T, D, G, Unsafe>): FormDefinition<T, D, G, Unsafe> {
   return Object.freeze({
     ...form,
-    destinations: Object.freeze(form.destinations),
-    guards: Object.freeze([...(form.guards ?? [])]),
+    destinations: Object.freeze([...form.destinations]) as unknown as D,
+    ...(form.allowedOrigins
+      ? { allowedOrigins: Object.freeze([...form.allowedOrigins]) }
+      : {}),
+    guards: Object.freeze(
+      (form.guards ?? []).map((guard) =>
+        Object.freeze({
+          ...guard,
+          type: guard.type,
+          phase: guard.phase,
+          check: guard.check.bind(guard),
+          fields: Object.freeze([...guard.fields]),
+          ...(guard.secretNames
+            ? { secretNames: Object.freeze([...guard.secretNames]) }
+            : {}),
+          ...(guard.bindingNames
+            ? { bindingNames: Object.freeze([...guard.bindingNames]) }
+            : {}),
+        }),
+      ),
+    ) as unknown as G,
   });
 }
 export function defineForms<
@@ -158,15 +182,24 @@ export function defineRelay<
   const P extends readonly AnyProvider[],
   const D extends Record<string, DestinationFor<P>> & DestinationRegistry,
   const F extends Record<string, AnyForm>,
->(config: RelayConfig<P, D, F>): RelayConfig<P, D, F> {
+>(
+  config: RelayConfig<P, D, F> & {
+    forms: { [K in keyof F]: F[K] & EffectiveProtection<F[K]> };
+  },
+): RelayConfig<P, D, F> {
   const providers = defineProviders(config.providers);
   const destinations = parseDestinations(providers, config.destinations) as D;
   // Revalidate even when callers bypassed defineForms or supplied untyped input.
   for (const [id, form] of Object.entries(config.forms)) {
     defineForms(destinations, { [id]: form });
+    if (
+      form.unsafeAllowUnprotected !== undefined &&
+      typeof form.unsafeAllowUnprotected !== "boolean"
+    )
+      throw new ConfigurationError("unsafeAllowUnprotected must be a boolean");
     const guardTypes = new Set(form.guards?.map((guard) => guard.type));
     if (
-      !form.unsafeAllowUnprotected &&
+      form.unsafeAllowUnprotected !== true &&
       !guardTypes.has("api-key") &&
       !(guardTypes.has("rate-limit") && guardTypes.has("turnstile"))
     )
@@ -200,9 +233,26 @@ export function defineRelay<
   return Object.freeze({
     providers,
     destinations,
-    forms: Object.freeze({ ...config.forms }),
+    forms: Object.freeze(
+      Object.fromEntries(
+        Object.entries(config.forms).map(([id, form]) => [
+          id,
+          defineForm(form),
+        ]),
+      ),
+    ) as F,
   });
 }
+type EffectiveProtection<F extends AnyForm> =
+  true extends F["unsafeAllowUnprotected"]
+    ? unknown
+    : "api-key" extends NonNullable<F["guards"]>[number]["type"]
+      ? unknown
+      : "rate-limit" extends NonNullable<F["guards"]>[number]["type"]
+        ? "turnstile" extends NonNullable<F["guards"]>[number]["type"]
+          ? unknown
+          : never
+        : never;
 function deepFreeze<T>(value: T): T {
   if (value && typeof value === "object") {
     for (const nested of Object.values(value)) deepFreeze(nested);

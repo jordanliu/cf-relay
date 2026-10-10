@@ -36,6 +36,51 @@ describe("Queue reliability", () => {
     expect(message.ack).toHaveBeenCalledOnce();
     expect(message.retry).not.toHaveBeenCalled();
   });
+  it.each(["removed", "changed-provider"])(
+    "fails closed before secrets/dependencies: %s",
+    async (change) => {
+      const f = fixture();
+      const getDependencies = vi.fn(() => ({}));
+      const config = {
+        ...f.config,
+        destinations:
+          change === "removed"
+            ? {}
+            : {
+                target: { ...f.config.destinations.target, provider: "other" },
+              },
+      };
+      const result = await dispatch(config, job(), 1, {
+        ...f,
+        dependencies: {},
+        getDependencies,
+      });
+      expect(result.outcome).toEqual({
+        status: "failed",
+        code: "DESTINATION_REVISION_MISMATCH",
+      });
+      expect(getDependencies).not.toHaveBeenCalled();
+      expect(f.secretReader.read).not.toHaveBeenCalled();
+      expect(f.deliver).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    { status: "accepted", credential: "secret" },
+    { status: "retry", code: "INVALID_PAYLOAD" },
+    { status: "invented" },
+    undefined,
+  ])(
+    "retries genuinely invalid provider outcomes without logging them",
+    async (outcome) => {
+      const f = fixture(async () => outcome as any);
+      const result = await dispatch(f.config, job(), 1, {
+        ...f,
+        dependencies: {},
+      });
+      expect(result.outcome).toEqual({ status: "retry", code: "UNKNOWN" });
+      expect(JSON.stringify(f.events)).not.toContain("secret");
+    },
+  );
   it("resolves only selected destination references and supplies no environment", async () => {
     const f = fixture();
     await dispatch(f.config, job(), 1, { ...f, dependencies: {} });

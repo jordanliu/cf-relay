@@ -1,5 +1,11 @@
 import type { Guard, SecretRef } from "@cf-relay/core";
-export function apiKey(options: { secret: SecretRef }): Guard {
+export function apiKey(options: {
+  secret: SecretRef;
+}): Guard & { readonly type: "api-key" } {
+  options = Object.freeze({
+    ...options,
+    secret: Object.freeze({ ...options.secret }),
+  });
   return {
     type: "api-key",
     phase: "auth",

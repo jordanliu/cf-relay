@@ -19,12 +19,14 @@ The email provider retains the same form/destination configuration. Only the com
 ```ts
 import { resendEmailTransport } from "@cf-relay/email-resend";
 
-providerDependencies: (env: WorkerEnvWithResend) => ({
-  slack: {},
-  discord: {},
-  email: { transport: resendEmailTransport(env.RESEND_API_KEY) },
-});
+providerDependencies: {
+  email: (env: WorkerEnvWithResend) => ({
+    transport: resendEmailTransport(env.RESEND_API_KEY),
+  }),
+}
 ```
+
+Factories are invoked only for providers selected by the form or the validated queued job. A missing unrelated capability cannot block another provider.
 
 Declare that binding name in your composition types and use Wrangler secrets to supply it. For the Resend option, verify your sending domain and scope the API credential. It sends to the fixed Resend endpoint using `reply_to`. It does not claim exactly-once behavior or durable vendor idempotency. Native Cloudflare email supports structured messages and returns a `messageId`; its lack of AbortSignal support means a timed-out attempt can still be accepted.
 

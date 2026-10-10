@@ -4,6 +4,7 @@ const badBody = () =>
   new RelayError(400, "INVALID_BODY", "Malformed submission body.");
 export async function parseBody(
   request: Request,
+  timeoutMs = 5000,
 ): Promise<Record<string, unknown>> {
   const mediaType = request.headers
     .get("content-type")
@@ -28,12 +29,18 @@ export async function parseBody(
     );
   if (!request.body) throw badBody();
   const reader = request.body.getReader();
+  const cancel = () => {
+    void reader.cancel().catch(() => {});
+  };
+  request.signal.addEventListener("abort", cancel, { once: true });
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
     await withDeadline(async () => {
       while (true) {
+        if (request.signal.aborted) throw badBody();
         const { value, done } = await reader.read();
+        if (request.signal.aborted) throw badBody();
         if (done) break;
         size += value.byteLength;
         if (size > LIMITS.rawBodyBytes)
@@ -44,11 +51,12 @@ export async function parseBody(
           );
         chunks.push(value);
       }
-    }, 5000);
+    }, timeoutMs);
   } catch (error) {
     if (error instanceof RelayError) throw error;
     throw badBody();
   } finally {
+    request.signal.removeEventListener("abort", cancel);
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }

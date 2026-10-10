@@ -11,11 +11,11 @@ export type WorkerEnv = WorkerBindings & {
   SERVER_API_KEY: string;
 };
 const relay = createCloudflareRelay(config, {
-  providerDependencies: (env: WorkerEnv) => ({
-    slack: {},
-    discord: {},
-    email: { transport: cloudflareEmailTransport(env.EMAIL) },
-  }),
+  providerDependencies: {
+    email: (env: WorkerEnv) => ({
+      transport: cloudflareEmailTransport(env.EMAIL),
+    }),
+  },
 });
 export default {
   fetch: (request: Request, env: WorkerEnv, ctx: ExecutionContext) =>

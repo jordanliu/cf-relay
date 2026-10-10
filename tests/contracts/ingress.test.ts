@@ -184,6 +184,87 @@ describe("bounded parse-once ingress", () => {
     ).rejects.toMatchObject({ status: 422 });
     expect(sendBatch).not.toHaveBeenCalled();
   });
+  it("keeps Queue rejection ambiguous and never issues a second batch", async () => {
+    const f = fixture();
+    const sendBatch = vi.fn(async () => {
+      throw new Error("ambiguous provider details");
+    });
+    await expect(
+      ingest(
+        f.config,
+        { formId: "contact", body: { message: "hello" }, headers: {} },
+        {
+          ...f,
+          signal: new AbortController().signal,
+          rateLimit: async () => true,
+          publisher: cloudflarePublisher({ sendBatch }),
+        },
+      ),
+    ).rejects.toMatchObject({ status: 503, code: "QUEUE_UNAVAILABLE" });
+    expect(sendBatch).toHaveBeenCalledOnce();
+    expect(f.events.some((event) => event.code === "ACCEPTANCE_UNKNOWN")).toBe(
+      true,
+    );
+    expect(JSON.stringify(f.events)).not.toContain(
+      "ambiguous provider details",
+    );
+  });
+  it("retains possible late Queue acceptance without changing the timed-out result", async () => {
+    let confirm!: () => void;
+    const sendBatch = vi.fn(
+      () =>
+        new Promise<QueueSendBatchResponse>((resolve) => {
+          confirm = () =>
+            resolve({
+              metadata: { metrics: { backlogCount: 1, backlogBytes: 100 } },
+            });
+        }),
+    );
+    const retained: Promise<unknown>[] = [];
+    const publish = cloudflarePublisher({ sendBatch }, 5, (pending) => {
+      retained.push(pending);
+    });
+    await expect(
+      publish.publish([{ message: { text: "hello" } }] as any),
+    ).rejects.toThrow(/deadline/);
+    expect(sendBatch).toHaveBeenCalledOnce();
+    confirm();
+    await Promise.all(retained);
+    expect(sendBatch).toHaveBeenCalledOnce();
+  });
+  it("cancels a stalled body at its deadline", async () => {
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({ cancel });
+    const request = new Request("https://relay.example", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit);
+    await expect(parseBody(request, 5)).rejects.toMatchObject({ status: 400 });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+  it("cancels an aborted request body and rejects rather than parsing partial data", async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('{"message":'));
+      },
+      cancel,
+    });
+    const request = new Request("https://relay.example", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: stream,
+      signal: controller.signal,
+      duplex: "half",
+    } as RequestInit);
+    const parsed = parseBody(request);
+    controller.abort();
+    await expect(parsed).rejects.toMatchObject({ status: 400 });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
   it("never reports uncertain publication as successful or claims zero effect", async () => {
     const f = fixture();
     const sendBatch = vi.fn(() => new Promise<never>(() => {}));

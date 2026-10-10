@@ -8,12 +8,12 @@ Tests run offline with Vitest, strict TypeScript fixtures, the current Cloudflar
 | Non-empty revisions; cross-provider extra fields | Type fixtures plus runtime strict schema validation |
 | Unknown form destination; schema-inferred transformer fields | Type fixtures; runtime registry tests |
 | Duplicate provider types / destination IDs | Config tests; programmatic entries preserve duplicate detection |
-| Effective protection; explicit unsafe opt-out | Config tests: API key or rate-limit + Turnstile, honeypot alone rejected |
+| Effective protection; explicit unsafe opt-out | Type/runtime config tests: API key or rate-limit + Turnstile; honeypot alone and non-boolean unsafe flags rejected |
 | Parse-once JSON and URL encoding; security separation | `contracts/ingress.test.ts` with strict business schema and minimal serialized jobs |
-| Multipart, raw limit, malformed encoding/UTF-8/duplicate keys | Ingress tests and Worker HTTP tests; zero publication |
+| Multipart, raw limit, malformed encoding/UTF-8/duplicate keys | Ingress tests include slow/aborted stream cancellation; Worker HTTP tests assert zero publication |
 | Encoded message/job/batch preflight | Ingress tests for Unicode byte overflow and overlarge batches |
 | Required secret/binding unavailable | Dispatch/policy tests and Worker HTTP fail-closed checks |
-| Stable config; scoped secret resolution | `contracts/dispatch.test.ts` |
+| Stable config; scoped secret resolution | Dispatch and runtime tests; frozen snapshots, normalized defaults, lazy scoped dependency factories |
 | Removed/rotated provider or revision | Revision tests assert no secret read or provider invocation |
 | Secret changed without revision | Invalid operational change documented in `operations.md`; symbolic references cannot detect it |
 | Provider accepted | Slack `200 ok`, Discord `wait=true` returned ID, email returned ID; Queue ack tests |
@@ -23,7 +23,7 @@ Tests run offline with Vitest, strict TypeScript fixtures, the current Cloudflar
 | Exhausted retries | `tests/platform/dlq.test.ts`: actual local Queue mechanism preserves original `delivery` envelope |
 | Heterogeneous failure Queue / invalid originals | Strict known-envelope schema; sanitized invalid-job handling; runbook requires safe handling of unknown envelopes |
 | Mixed batch | Contract and Workers settlement tests: successful ack, retry only failed/retryable messages |
-| `sendBatch()` timeout/rejection | Unit timeout test: one call, safe 503, `ACCEPTANCE_UNKNOWN`, no zero-effect claim |
+| `sendBatch()` timeout/rejection | Rejection/timeout/late acceptance tests: one call, safe 503, `ACCEPTANCE_UNKNOWN`, retained pending publication, no zero-effect claim |
 | Confirmed publication | Workers test spies on one real Queue `sendBatch` before 202 |
 | HTTP retries / downstream duplicate risk | At-least-once and no durable HTTP idempotency documented; stable IDs do not deduplicate new requests |
 | No raw data / secret refs / tokens queued | Serialization assertions in ingress tests |

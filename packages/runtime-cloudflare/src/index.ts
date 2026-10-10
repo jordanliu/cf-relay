@@ -28,16 +28,45 @@ export * from "./http";
 export * from "./limits";
 export * from "./queue";
 
+export type ProviderDependencyFactories<
+  E extends object,
+  P extends readonly AnyProvider[],
+> = {
+  [K in keyof ProviderDependencies<P> as ProviderDependencies<P>[K] extends Record<
+    string,
+    never
+  >
+    ? never
+    : K]: (env: E) => ProviderDependencies<P>[K];
+} & {
+  [K in keyof ProviderDependencies<P> as ProviderDependencies<P>[K] extends Record<
+    string,
+    never
+  >
+    ? K
+    : never]?: (env: E) => ProviderDependencies<P>[K];
+};
+
 export function createCloudflareRelay<
   E extends object,
   const P extends readonly AnyProvider[],
   const D extends DestinationRegistry & Record<string, DestinationFor<P>>,
 >(
-  config: RelayConfig<P, D>,
-  options: { providerDependencies(env: E): ProviderDependencies<P> },
+  declaredConfig: RelayConfig<P, D>,
+  options: {
+    providerDependencies: ProviderDependencyFactories<E, P> &
+      Record<string, (env: E) => object>;
+  },
 ) {
   // The composition root already uses defineRelay. Revalidation also protects untyped consumers.
-  defineRelay(config);
+  const config: RelayConfig<P, D> = defineRelay(declaredConfig);
+  const dependenciesFor = (env: E, type: string): object => {
+    const factories = options.providerDependencies as Record<
+      string,
+      ((env: E) => object) | undefined
+    >;
+    return Object.hasOwn(factories, type) ? (factories[type]?.(env) ?? {}) : {};
+  };
   const app = new Hono<{ Bindings: E }>();
   const logger = createSafeLogger();
   app.get("/healthz", (c) => c.json({ status: "ok" }));
@@ -106,6 +135,14 @@ export function createCloudflareRelay<
         typeof queue.sendBatch !== "function"
       )
         throw unavailable();
+      const failures = binding(c.env, "FAILURES");
+      if (
+        !failures ||
+        typeof failures !== "object" ||
+        !("send" in failures) ||
+        typeof failures.send !== "function"
+      )
+        throw unavailable();
       const secrets = cloudflareSecrets(c.env);
       const required = new Set<string>(
         form.guards?.flatMap((guard) => [...(guard.secretNames ?? [])]),
@@ -120,7 +157,15 @@ export function createCloudflareRelay<
         ]) ?? [])
           if (!binding(c.env, name))
             throw new Error("Required guard binding missing");
-        options.providerDependencies(c.env);
+        for (const type of new Set(
+          form.destinations.map(
+            (id) => (config.destinations as DestinationRegistry)[id]?.provider,
+          ),
+        ))
+          if (type)
+            config.providers
+              .find((provider) => provider.type === type)
+              ?.create(dependenciesFor(c.env, type));
       } catch {
         throw unavailable();
       }
@@ -178,12 +223,6 @@ export function createCloudflareRelay<
       env: E,
       ctx: ExecutionContext,
     ): Promise<void> {
-      let dependencies: Record<string, object> = {};
-      try {
-        dependencies = options.providerDependencies(env);
-      } catch {
-        /* Dispatch retries unavailable dependencies individually. */
-      }
       const failures = binding(env, "FAILURES");
       const failureSink =
         failures &&
@@ -202,7 +241,8 @@ export function createCloudflareRelay<
         http: runtimeHttp,
         logger,
         secretReader: cloudflareSecrets(env),
-        dependencies,
+        dependencies: {},
+        getDependencies: (type) => dependenciesFor(env, type),
         failureSink,
       });
     },

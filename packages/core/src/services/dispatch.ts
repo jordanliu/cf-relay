@@ -54,6 +54,7 @@ export async function dispatch(
   context: Omit<DeliveryContext, "signal"> & {
     secretReader: SecretReader;
     dependencies: Record<string, object>;
+    getDependencies?: (type: string) => object;
     timeoutMs?: number;
   },
 ): Promise<DispatchResult> {
@@ -111,7 +112,9 @@ export async function dispatch(
           const resolved = await resolveSecrets(declared, context.secretReader);
           if (signal.aborted) throw new DeadlineError();
           const executor = definition.create(
-            context.dependencies[definition.type] ?? {},
+            context.getDependencies?.(definition.type) ??
+              context.dependencies[definition.type] ??
+              {},
           );
           return outcomeSchema.parse(
             await executor.deliver(

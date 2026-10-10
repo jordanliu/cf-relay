@@ -33,6 +33,49 @@ function caps(): GuardCapabilities {
   };
 }
 describe("policies and safe logging", () => {
+  it("snapshots built-in guard options rather than retaining mutable caller inputs", async () => {
+    const authOptions = {
+      secret: { kind: "cf-relay.secret" as const, name: "ORIGINAL" },
+    };
+    const botOptions = {
+      secret: secret("TURNSTILE"),
+      tokenField: "token",
+      expectedHostname: "example.com",
+      expectedAction: "contact",
+    };
+    const honeypotOptions = { field: "website" };
+    const rateOptions = { binding: "LIMIT" };
+    const auth = apiKey(authOptions),
+      bot = turnstile(botOptions),
+      honey = honeypot(honeypotOptions),
+      limit = rateLimit(rateOptions);
+    authOptions.secret.name = "CHANGED";
+    botOptions.expectedHostname = "evil.example";
+    botOptions.tokenField = "other";
+    honeypotOptions.field = "other";
+    rateOptions.binding = "OTHER";
+    const capabilities = caps();
+    const read = vi.fn(() => "fake-only");
+    expect(
+      await auth.check(
+        { ...input, headers: { authorization: "Bearer fake-only" } },
+        { ...capabilities, secretReader: { read } },
+      ),
+    ).toEqual({ allowed: true });
+    expect(read).toHaveBeenCalledWith("ORIGINAL");
+    expect(await bot.check(input, capabilities)).toEqual({ allowed: true });
+    expect(
+      await honey.check(
+        { ...input, security: { website: "bot" } },
+        capabilities,
+      ),
+    ).toEqual({ allowed: false, status: 403 });
+    await limit.check(input, capabilities);
+    expect(capabilities.rateLimit).toHaveBeenCalledWith(
+      "LIMIT",
+      expect.any(String),
+    );
+  });
   it("authenticates API keys with Web Crypto and fails closed", async () => {
     const guard = apiKey({ secret: secret("API_KEY") });
     const capabilities = caps();
