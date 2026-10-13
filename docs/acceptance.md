@@ -12,7 +12,7 @@ Run the full suite with `npm run check`. Tests use fake credentials and mocked p
 | Dispatch | Job/version validation, revision checks before secrets, bounded retries, sanitized failure publication before acknowledgment, failure-sink retries | [Dispatch tests](../tests/contracts/dispatch.test.ts) |
 | Workers runtime | CORS, methods, authentication, rejection without Queue writes, confirmed batch publication, independent message settlement | [Worker tests](../tests/integration/worker.test.ts) |
 | Dead-letter Queue | Retry exhaustion preserves the original delivery envelope | [Platform test](../tests/platform/dlq.test.ts) |
-| CLI | All starter profiles, overwrite protection, secret redaction, doctor diagnostics, fixture limits, rendering failures, escaped/sandboxed HTML | [CLI tests](../tests/tooling/cli.test.ts) |
+| CLI | API starter profiles, setup and credential preservation, overwrite protection, secret redaction, diagnostics, fixture limits, rendering failures, escaped/sandboxed previews | [CLI tests](../tests/tooling/cli.test.ts) |
 | Browser client | URL-encoded submission, concurrent-send prevention, status feedback, preserved fields, fresh tokens and manual retries | [Browser tests](../tests/tooling/browser.test.ts) |
 
 Browser tests use DOM boundary fixtures and mocked fetch; they do not run a live Turnstile challenge.

@@ -4,6 +4,7 @@ import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { ToolError } from "./errors";
+import { projectPaths } from "./paths";
 
 async function formatSource(
   root: string,
@@ -93,6 +94,7 @@ export async function createStarter(
   )
     throw new ToolError("Supply valid email addresses with --from and --to.");
   const output = resolve(root, options.output ?? "apps/worker");
+  const paths = projectPaths(root, join(output, "relay.config.ts"));
   const browser = mode === "browser";
   const formId = browser ? "contact" : "events";
   const webhookSecret =
@@ -154,11 +156,14 @@ export default {
 `;
   const wrangler = {
     $schema: relative(
-      output,
+      dirname(paths.wranglerPath),
       join(root, "node_modules/wrangler/config-schema.json"),
-    ),
+    ).replaceAll("\\", "/"),
     name,
-    main: "src/index.ts",
+    main: relative(
+      dirname(paths.wranglerPath),
+      join(output, "src/index.ts"),
+    ).replaceAll("\\", "/"),
     compatibility_date: "2026-10-10",
     compatibility_flags: ["nodejs_compat"],
     observability: { enabled: true, head_sampling_rate: 1 },
@@ -202,15 +207,15 @@ export default {
       : {}),
   };
   const files: Record<string, string> = {
-    "relay.config.ts": config,
-    "wrangler.jsonc": `${JSON.stringify(wrangler, null, 2)}\n`,
-    "src/index.ts": entry,
-    ".dev.vars.example": `${secrets.map((secret) => `${secret}=`).join("\n")}\n`,
-    "fixture.json": `${JSON.stringify(browser ? { name: "Example sender", email: "sender@example.com", message: "A local preview submission." } : { event: "Example event", details: "A local preview submission." }, null, 2)}\n`,
+    [paths.configPath]: config,
+    [paths.wranglerPath]: `${JSON.stringify(wrangler, null, 2)}\n`,
+    [join(output, "src/index.ts")]: entry,
+    [`${paths.secretsPath}.example`]: `${secrets.map((secret) => `${secret}=`).join("\n")}\n`,
+    [paths.fixturePath]: `${JSON.stringify(browser ? { name: "Example sender", email: "sender@example.com", message: "A local preview submission." } : { event: "Example event", details: "A local preview submission." }, null, 2)}\n`,
   };
   for (const file of Object.keys(files)) {
     try {
-      await access(join(output, file));
+      await access(file);
     } catch {
       continue;
     }
@@ -221,10 +226,10 @@ export default {
   }
   for (const [file, content] of Object.entries(files)) {
     if (/\.(ts|jsonc?|html)$/.test(file))
-      files[file] = await formatSource(root, file, content);
+      files[file] = await formatSource(root, relative(root, file), content);
   }
   for (const [file, content] of Object.entries(files)) {
-    const path = join(output, file);
+    const path = file;
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content, { flag: options.force ? "w" : "wx" });
   }
@@ -232,7 +237,7 @@ export default {
     `Created ${mode}/${provider} starter in ${relative(root, output) || "."}.`,
   );
   console.log(
-    `Generate bindings: npx wrangler types --config ${JSON.stringify(relative(root, join(output, "wrangler.jsonc")))} ${JSON.stringify(relative(root, join(output, "worker-configuration.d.ts")))} --env-interface WorkerBindings --include-runtime false`,
+    `Generate bindings: npx wrangler types --config ${JSON.stringify(relative(root, paths.wranglerPath))} ${JSON.stringify(relative(root, paths.bindingsPath))} --env-interface WorkerBindings --include-runtime false`,
   );
   console.log(
     "Set the required secrets, then follow docs/operations.md to provision and deploy.",

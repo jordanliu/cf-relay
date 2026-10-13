@@ -5,9 +5,16 @@ import { diagnose } from "./doctor";
 import { ToolError } from "./errors";
 import { preview, previewHtml } from "./preview";
 import { readProject, writeOutput } from "./project";
+import { setupProject } from "./setup";
 import { createStarter } from "./starter";
 
 const help = `Usage: npm run <command> -- [options]
+
+setup    Validate configuration and a fixture, generate bindings, and create .dev.vars.
+         --config path (default: apps/worker/relay.config.ts)
+         --input path (default: fixture.json beside configuration)
+         --form formId (optional for a single-form config) --origin https://client-domain
+         Existing credentials are preserved; a new server API key is generated locally.
 
 init     Generate a single-form, single-provider Worker starter.
          --mode browser|server --provider slack|discord|email
@@ -59,6 +66,23 @@ export async function main(args: string[], root: string): Promise<number> {
       throw new ToolError(
         "Unknown command. Use --help for available commands.",
       );
+    if (positionals[0] === "setup") {
+      const report = await setupProject(root, values);
+      console.log("Configuration checked and Worker bindings generated.");
+      console.log(
+        `Preview passed: ${report.formId}, ${report.destinations} destination(s).`,
+      );
+      console.log(
+        `${report.created ? (report.migrated ? "Copied existing credentials to" : "Created") : "Preserved"} ${report.credentials}.`,
+      );
+      console.log(
+        `Required secrets: ${report.requiredSecrets.join(", ") || "none"}.`,
+      );
+      console.log(
+        "Fill in local credentials, then follow docs/operations.md to provision and deploy. No resources were created or notifications sent.",
+      );
+      return 0;
+    }
     if (positionals[0] === "preview") {
       const report = await preview(
         await readProject(root, values.config),

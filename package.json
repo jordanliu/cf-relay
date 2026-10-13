@@ -14,22 +14,41 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "setup": "node scripts/relay.mjs setup",
     "init": "node scripts/relay.mjs init",
     "doctor": "node scripts/relay.mjs doctor",
     "preview": "node scripts/relay.mjs preview",
     "format": "biome format --write .",
     "lint": "biome check . && node scripts/check-boundaries.mjs",
     "typecheck": "tsc --noEmit && tsc -p packages/core/tsconfig.json && tsc -p tests/types/tsconfig.json",
-    "types:generate": "wrangler types --config apps/worker/wrangler.jsonc apps/worker/worker-configuration.d.ts --env-interface WorkerBindings --include-runtime false && npm run types:generate:tests",
+    "types:generate": "wrangler types --config wrangler.jsonc apps/worker/worker-configuration.d.ts --env-interface WorkerBindings --include-runtime false && npm run types:generate:tests",
     "types:generate:tests": "wrangler types --config tests/integration/wrangler.jsonc tests/integration/worker-configuration.d.ts --env-interface IntegrationBindings --include-runtime false --strict-vars false",
-    "types:check": "wrangler types --config apps/worker/wrangler.jsonc apps/worker/worker-configuration.d.ts --env-interface WorkerBindings --check --include-runtime false && npm run types:check:tests",
+    "types:check": "wrangler types --config wrangler.jsonc apps/worker/worker-configuration.d.ts --env-interface WorkerBindings --check --include-runtime false && npm run types:check:tests",
     "types:check:tests": "wrangler types --config tests/integration/wrangler.jsonc tests/integration/worker-configuration.d.ts --env-interface IntegrationBindings --include-runtime false --strict-vars false --check",
     "test": "vitest run --config vitest.config.ts",
     "test:workers": "vitest run --config vitest.workers.config.ts",
-    "build": "cd apps/worker && wrangler deploy --config wrangler.jsonc --dry-run --outdir ../../dist/worker",
-    "dev": "wrangler dev --config apps/worker/wrangler.jsonc --local",
+    "build": "wrangler deploy --dry-run --outdir dist/worker",
+    "dev": "wrangler dev --local",
+    "secrets": "npm run doctor -- --local --strict && wrangler secret bulk .dev.vars",
+    "deploy": "wrangler deploy",
     "check": "npm run lint && npm run typecheck && npm test && npm run test:workers && npm run test:dlq && npm run types:check && npm run build",
     "test:dlq": "vitest run --config vitest.platform.config.ts"
+  },
+  "cloudflare": {
+    "bindings": {
+      "SLACK_WEBHOOK_V1": {
+        "description": "Slack incoming webhook URL for notification delivery. Create an incoming webhook for the channel that should receive events."
+      },
+      "SERVER_API_KEY": {
+        "description": "Generate a random API key of at least 32 characters using a password manager. Trusted server clients send this key using the Authorization: Bearer header."
+      },
+      "DELIVERIES": {
+        "description": "Queue for asynchronous notification delivery. Cloudflare provisions this during deployment."
+      },
+      "FAILURES": {
+        "description": "Queue for failure records and exhausted delivery jobs. Cloudflare provisions this during deployment."
+      }
+    }
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

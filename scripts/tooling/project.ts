@@ -6,6 +6,7 @@ import { defineRelay, type RelayConfig } from "@cf-relay/core";
 import { build } from "esbuild";
 import ts from "typescript";
 import { ToolError } from "./errors";
+import { projectPaths } from "./paths";
 
 export interface WranglerConfig {
   name?: string;
@@ -25,22 +26,24 @@ export interface WranglerConfig {
 }
 
 export async function readProject(root: string, configPath?: string) {
-  const path = resolve(root, configPath ?? "apps/worker/relay.config.ts");
-  const directory = dirname(path);
+  const paths = projectPaths(root, configPath);
   let source: string;
   let wrangler: WranglerConfig;
   let entrySource: string;
   try {
-    source = await readFile(path, "utf8");
+    source = await readFile(paths.configPath, "utf8");
     const parsed = ts.parseConfigFileTextToJson(
       "wrangler.jsonc",
-      await readFile(join(directory, "wrangler.jsonc"), "utf8"),
+      await readFile(paths.wranglerPath, "utf8"),
     );
     if (parsed.error || !parsed.config || typeof parsed.config !== "object")
       throw new Error();
     wrangler = parsed.config;
     if (typeof wrangler.main !== "string") throw new Error();
-    entrySource = await readFile(resolve(directory, wrangler.main), "utf8");
+    entrySource = await readFile(
+      resolve(dirname(paths.wranglerPath), wrangler.main),
+      "utf8",
+    );
   } catch {
     throw new ToolError(
       "Cannot read the relay configuration, Wrangler JSONC, or Worker entry point. Check --config and the Wrangler main path.",
@@ -52,7 +55,7 @@ export async function readProject(root: string, configPath?: string) {
   let config: RelayConfig;
   try {
     await build({
-      entryPoints: [path],
+      entryPoints: [paths.configPath],
       bundle: true,
       platform: "node",
       format: "esm",
@@ -68,7 +71,7 @@ export async function readProject(root: string, configPath?: string) {
   } finally {
     await rm(output, { force: true });
   }
-  return { config, directory, source, entrySource, wrangler };
+  return { ...paths, config, source, entrySource, wrangler };
 }
 
 export type Project = Awaited<ReturnType<typeof readProject>>;

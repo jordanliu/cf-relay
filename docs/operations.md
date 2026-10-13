@@ -1,13 +1,28 @@
 # Operations
 
+## Deploy from the dashboard
+
+Use the [Deploy to Cloudflare button](../README.md#quick-start) for the default Slack API:
+
+1. Sign in to Cloudflare and connect GitHub. Cloudflare creates a copy of this public repository in your account.
+2. Choose the Worker and Queue names.
+3. Supply `SLACK_WEBHOOK_V1` and a randomly generated `SERVER_API_KEY`.
+4. Accept the build and deploy commands to provision both Queues and deploy the API.
+
+The button uses the whole repository, including workspace dependencies. Keep the build root at the repository root. The default commands are `npm run build` and `npm run deploy`; dashboard deployment does not need local setup or secret upload.
+
+Workers Builds deploys subsequent changes from the configured production branch. See [Cloudflare's deploy button guide](https://developers.cloudflare.com/workers/platform/deploy-buttons/). Connect a server client using the deployed URL and API key, then verify with a controlled submission.
+
 ## Configure and deploy
 
-Start with the [README's Slack server starter](../README.md#quick-start), or choose [another profile](development.md#generate-a-starter).
+For deployment from your machine:
+
+Start with the [README's default Slack API](../README.md#quick-start), or choose [another profile](development.md#generate-a-starter).
 
 | File | Configure |
 | --- | --- |
 | [relay.config.ts](../apps/worker/relay.config.ts) | Schemas, guards, messages, destinations, revisions |
-| [wrangler.jsonc](../apps/worker/wrangler.jsonc) | Worker and Queue names, bindings, consumer settings |
+| [wrangler.jsonc](../wrangler.jsonc) | Worker and Queue names, bindings, consumer settings |
 
 Keep producer, consumer, and dead-letter Queue names consistent. Run `npm run doctor -- --strict` to check configuration and list required secrets.
 
@@ -19,29 +34,28 @@ npx wrangler queues create cf-relay-deliveries
 npx wrangler queues create cf-relay-failures
 ```
 
-For the README's Slack server starter, set:
+Run `npm run setup` and fill in `.dev.vars`. The default API needs `SLACK_WEBHOOK_V1` and `SERVER_API_KEY`; other configurations use the names reported by doctor. Declare secret types in `WorkerEnv`; platform binding types are generated.
+
+Upload and deploy:
 
 ```sh
-npx wrangler secret put SLACK_WEBHOOK_V1 --config apps/worker/wrangler.jsonc
-npx wrangler secret put SERVER_API_KEY --config apps/worker/wrangler.jsonc
-```
-
-For other configurations, set the names reported by doctor. Enter values through Wrangler's prompts. Declare secret types in `WorkerEnv`; platform binding types are generated.
-
-Validate and deploy:
-
-```sh
-npm run doctor -- --strict
-npm run types:generate
+npm run secrets
 npm run check
-npx wrangler deploy --config apps/worker/wrangler.jsonc
+npm run deploy
 ```
 
-Checks perform local validation and a deployment dry run. The final command deploys. Set any custom domain or route, update client URLs, and verify delivery with a controlled submission to a destination you own.
+`secrets` validates local credentials, then uploads all entries in `.dev.vars`. Use values intended for this Worker. For separate production credentials, set each name through Wrangler's interactive prompt instead:
+
+```sh
+npx wrangler secret put SLACK_WEBHOOK_V1
+npx wrangler secret put SERVER_API_KEY
+```
+
+Checks perform local validation and a deployment dry run. `npm run deploy` publishes the API. Set any custom domain or route, update client URLs, and verify delivery with a controlled submission to a destination you own.
 
 ## Browser and email setup
 
-For browser forms, configure the page's exact `allowedOrigins`, Turnstile `expectedHostname`, and action `contact`. Set the public site key and endpoint in the [HTML client](../examples/contact-form/index.html), and serve it with [client.js](../examples/contact-form/client.js). Its `website` honeypot stays empty; Turnstile tokens are refreshed after requests. See [token validation](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/).
+For browser submissions, generate a `browser` API configuration and configure the page's exact `allowedOrigins`, Turnstile `expectedHostname`, and action `contact`. Connect your own frontend or follow the [browser example](../examples/README.md#browser-client). Its `website` honeypot stays empty; Turnstile tokens are refreshed after requests. See [token validation](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/).
 
 Choose an account-unique rate-limit namespace unless shared counters are intentional. Rate limiting uses the form ID and a transient client-IP hash; it is distributed abuse protection, not an exact global quota. Local adapters must supply a trusted client identity. See [rate-limit bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
 
@@ -49,10 +63,10 @@ For native email, [onboard the sending domain](https://developers.cloudflare.com
 
 ## Local development
 
-Copy the selected starter's secret template:
+Run setup to prepare bindings, validate the fixture, and create `.dev.vars` without replacing existing credentials:
 
 ```sh
-cp apps/worker/.dev.vars.example apps/worker/.dev.vars
+npm run setup
 ```
 
 Fill in `.dev.vars`, then run:
@@ -113,7 +127,7 @@ HTTP sends receive an `AbortSignal` and disable redirects. Native email and Queu
 ## Monitor and inspect failures
 
 ```sh
-npx wrangler tail --config apps/worker/wrangler.jsonc
+npx wrangler tail
 ```
 
 Logs contain safe event codes and correlation IDs, omitting content, credentials, addresses, URLs, and upstream errors. Monitor both Queues' backlog and oldest-message age; alert on failure backlog and approaching retention expiry.

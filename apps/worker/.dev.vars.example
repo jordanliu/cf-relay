@@ -1,5 +1,0 @@
-# Placeholder binding names only. Supply local test credentials in ignored .dev.vars.
-ENGINEERING_SLACK_WEBHOOK_V1=
-COMMUNITY_DISCORD_WEBHOOK_V1=
-TURNSTILE_SECRET=
-SERVER_API_KEY=

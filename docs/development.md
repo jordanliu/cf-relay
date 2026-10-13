@@ -16,6 +16,16 @@ See the [public contracts](../packages/core/src/contracts/ports.ts) and [contrib
 
 Run commands from the repository root after `npm ci`. Each accepts `--help`.
 
+### Prepare local setup
+
+```sh
+npm run setup
+```
+
+Setup runs strict doctor and fixture checks, generates Worker bindings, and creates ignored `.dev.vars`. A new server credential file receives a random `SERVER_API_KEY`; existing files are preserved. Setup copies legacy `apps/worker/.dev.vars` to the root when no root credential file exists. Fill in the other credentials before local requests or deployment.
+
+Use `--config <path>` for another starter, with `--input` and `--form` for custom fixtures. Setup performs local checks without provisioning or delivery. It imports trusted configuration code; see [extension trust](../SECURITY.md#extension-trust).
+
 ### Generate a starter
 
 `npm run init` prompts for mode and provider. For repeatable generation, use flags:
@@ -37,7 +47,7 @@ npm run init -- --mode browser --provider email --email-transport resend \
 | `--output` | Directory; defaults to `apps/worker` |
 | `--force` | Replace existing starter files; preserve `.dev.vars` |
 
-Starters contain one form, one destination, `relay.config.ts`, `src/index.ts`, `wrangler.jsonc`, `.dev.vars.example`, and `fixture.json`. The command prints the binding-generation command for its output directory. Standard repository commands target `apps/worker`; use explicit configuration paths for other directories.
+Starters configure API ingestion and delivery, with no frontend assets. They contain one form, one destination, `relay.config.ts`, `src/index.ts`, `wrangler.jsonc`, `.dev.vars.example`, and `fixture.json`. Run setup after generation, using `--config <output>/relay.config.ts` for a separate directory. The default Worker source stays in `apps/worker`; Wrangler configuration and secrets live at the repository root. Separate output directories keep all starter files together.
 
 Combine the selected form and provider requirements:
 
@@ -52,6 +62,8 @@ Combine the selected form and provider requirements:
 
 Browser starters use Turnstile action `contact` and derive `expectedHostname` from `--origin`. Verify the generated rate-limit namespace is unique in your account.
 
+When switching profiles, add any newly required secret names to an existing `.dev.vars`.
+
 ### Inspect configuration
 
 ```sh
@@ -61,31 +73,25 @@ npm run doctor -- --local --json
 
 Doctor checks Queue wiring, required bindings and secret names, native email allowlists, placeholders, and secret type declarations. `--local` checks credential presence in `.dev.vars` without printing values. Errors exit with code 1; `--strict` also fails on warnings.
 
-Use `--config <path>` for another relay configuration, with `wrangler.jsonc` beside it. Inspection covers root Wrangler settings, inline dependency factories, and literal hostnames. Verify per-form Turnstile settings separately. Live credentials, DNS, computed settings, and alternate Wrangler environments are not checked.
+The default Worker uses root `wrangler.jsonc` and `.dev.vars`. For another starter, use `--config <path>` with Wrangler configuration and credentials beside it. Inspection covers root Wrangler settings, inline dependency factories, and literal hostnames. Verify per-form Turnstile settings separately. Live credentials, DNS, computed settings, and alternate Wrangler environments are not checked.
 
 ### Preview notifications
 
-For the included configuration:
+For the default API, or a generated browser configuration:
 
 ```sh
-npm run preview -- --form contact --input examples/fixtures/contact.json
-npm run preview -- --form events --input examples/fixtures/events.json --output .scratch/events.html
+npm run preview -- --input apps/worker/fixture.json --output .scratch/preview.html
+# After generating a browser configuration:
+npm run preview -- --input examples/fixtures/contact.json
 ```
 
 Preview parses a UTF-8 JSON object within 32 KiB, removes declared guard fields, validates the schema and message, checks job size, and renders each built-in destination. Guard fields may be omitted. A single-form configuration needs no `--form`; `--origin` supplies origin metadata to the transform.
 
 Output defaults to JSON; `.html` paths add a page with sandboxed email HTML. Existing files require `--force`. Rendering failures exit with code 1; custom providers return `UNSUPPORTED_PREVIEW`. Preview bypasses guards and delivery. Both tools execute trusted configuration code; see [extension trust](../SECURITY.md#extension-trust).
 
-## Included configuration
+## Default configuration
 
-Before starter generation, [relay.config.ts](../apps/worker/relay.config.ts) defines:
-
-| Form | Fields | Protection | Destinations |
-| --- | --- | --- | --- |
-| `contact` | `name`, `email`, `message` | Rate limit, Turnstile, honeypot | Slack, Discord, email |
-| `events` | `event`, `details` | API key | Slack |
-
-Keep this configuration if you need multiple destinations. Replace sample origins, hostname, addresses, and credentials before deployment. Doctor reports its required secret names.
+The included [relay.config.ts](../apps/worker/relay.config.ts) defines `events` with `event` and `details` fields, API-key authentication, and one Slack destination. The [multi-destination example](../examples/multi-destination/relay.config.ts) shows browser and server forms with Slack, Discord, and email.
 
 ## Add a provider
 
@@ -105,7 +111,7 @@ Respect `AbortSignal`, bound response bodies, and use safe error codes. The disp
 
 ## Swap email transports
 
-Forms and destinations are unchanged when switching transports. For Resend, add `RESEND_API_KEY: string` to `WorkerEnv` and replace the native transport import and factory in [the entry point](../apps/worker/src/index.ts):
+Start with an email API configuration. Forms and destinations are unchanged when switching transports. For Resend, add `RESEND_API_KEY: string` to `WorkerEnv` and replace the native transport import and factory in [the entry point](../apps/worker/src/index.ts):
 
 ```ts
 import { resendEmailTransport } from "@cf-relay/email-resend";
@@ -122,7 +128,7 @@ const relay = createCloudflareRelay(config, {
 Keep the existing `createCloudflareRelay` and `config` imports. Remove an unused native `EMAIL` binding, regenerate types, verify the Resend sending domain, and set the credential:
 
 ```sh
-npx wrangler secret put RESEND_API_KEY --config apps/worker/wrangler.jsonc
+npx wrangler secret put RESEND_API_KEY
 ```
 
 ## Limits and rendering

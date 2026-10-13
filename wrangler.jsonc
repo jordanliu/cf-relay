@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cf-relay",
+  "main": "apps/worker/src/index.ts",
+  "compatibility_date": "2026-10-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "DELIVERIES",
+        "queue": "cf-relay-deliveries"
+      },
+      {
+        "binding": "FAILURES",
+        "queue": "cf-relay-failures"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "cf-relay-deliveries",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "cf-relay-failures",
+        "max_concurrency": 10
+      }
+    ]
+  }
+}

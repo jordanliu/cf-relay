@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { secretNames } from "@cf-relay/core";
 import { dependencyBindings, inspectSource, type Project } from "./project";
@@ -78,14 +77,12 @@ export async function diagnose(project: Project, local = false) {
   let localValues: Record<string, string | undefined> = {};
   if (local) {
     try {
-      localValues = parseEnv(
-        await readFile(join(project.directory, ".dev.vars"), "utf8"),
-      );
+      localValues = parseEnv(await readFile(project.secretsPath, "utf8"));
     } catch {
       add(
         "error",
         "LOCAL_SECRETS_FILE_MISSING",
-        "Create .dev.vars beside relay.config.ts using .dev.vars.example and supply local credentials.",
+        "Create .dev.vars beside wrangler.jsonc using .dev.vars.example and supply local credentials.",
       );
     }
   }

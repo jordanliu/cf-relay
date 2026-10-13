@@ -1,9 +1,18 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { main } from "../../scripts/tooling/cli";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const execute = promisify(execFile);
@@ -14,7 +23,14 @@ async function cli(...args: string[]) {
     const result = await execute(
       process.execPath,
       [join(root, "scripts/relay.mjs"), ...args],
-      { cwd: root },
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          WRANGLER_SEND_METRICS: "false",
+          WRANGLER_LOG_PATH: join(root, ".scratch/wrangler-logs"),
+        },
+      },
     );
     return { ...result, code: 0 };
   } catch (error) {
@@ -32,10 +48,64 @@ beforeEach(async () => {
   directory = await mkdtemp(join(root, ".scratch/tooling-"));
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   await rm(directory, { recursive: true, force: true });
 });
 
 describe("relay tooling commands", () => {
+  it("uses root deployment configuration and safely migrates legacy credentials for the default Worker", async () => {
+    await symlink(
+      join(root, "node_modules"),
+      join(directory, "node_modules"),
+      "junction",
+    );
+    vi.stubEnv("WRANGLER_SEND_METRICS", "false");
+    vi.stubEnv("WRANGLER_LOG_PATH", join(directory, "wrangler-logs"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    expect(
+      await main(
+        ["init", "--mode", "server", "--provider", "slack"],
+        directory,
+      ),
+    ).toBe(0);
+    const wrangler = JSON.parse(
+      await readFile(join(directory, "wrangler.jsonc"), "utf8"),
+    );
+    expect(wrangler.main).toBe("apps/worker/src/index.ts");
+    expect(await readFile(join(directory, ".dev.vars.example"), "utf8")).toBe(
+      "SLACK_WEBHOOK_V1=\nSERVER_API_KEY=\n",
+    );
+    await expect(
+      readFile(join(directory, "apps/worker/wrangler.jsonc")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+
+    const legacy = join(directory, "apps/worker/.dev.vars");
+    const credentials =
+      "SLACK_WEBHOOK_V1=private-test-only\nSERVER_API_KEY=private-test-only\n";
+    await writeFile(legacy, credentials);
+    expect(await main(["setup"], directory)).toBe(0);
+    const local = join(directory, ".dev.vars");
+    expect(await readFile(local, "utf8")).toBe(credentials);
+    expect(await readFile(legacy, "utf8")).toBe(credentials);
+    expect(
+      await readFile(
+        join(directory, "apps/worker/worker-configuration.d.ts"),
+        "utf8",
+      ),
+    ).toContain("DELIVERIES: Queue");
+    expect(await main(["doctor", "--local", "--strict"], directory)).toBe(0);
+
+    const replacement = credentials.replaceAll(
+      "private-test-only",
+      "private-root-test-only",
+    );
+    await writeFile(local, replacement);
+    expect(await main(["setup"], directory)).toBe(0);
+    expect(await readFile(local, "utf8")).toBe(replacement);
+    expect(JSON.stringify(log.mock.calls)).not.toContain("private-");
+  }, 15_000);
+
   it.each([
     ["browser", "slack", "cloudflare"],
     ["server", "slack", "cloudflare"],
@@ -81,6 +151,7 @@ describe("relay tooling commands", () => {
         provider === "email" && transport === "cloudflare",
       );
       expect(Boolean(wrangler.ratelimits)).toBe(mode === "browser");
+      expect(wrangler.assets).toBeUndefined();
       const rendered = await cli(
         "preview",
         "--config",
@@ -92,6 +163,119 @@ describe("relay tooling commands", () => {
       expect(JSON.parse(rendered.stdout).previews[0].provider).toBe(provider);
     },
   );
+
+  it.each([
+    ["server", "slack"],
+    ["browser", "email"],
+  ])(
+    "prepares a %s/%s API with generated bindings and preserves credentials on repeat setup",
+    async (mode, provider) => {
+      await cli(
+        "init",
+        "--mode",
+        mode,
+        "--provider",
+        provider,
+        "--origin",
+        "https://forms.acme.io",
+        "--from",
+        "forms@acme.io",
+        "--to",
+        "team@acme.io",
+        "--output",
+        directory,
+        ...(provider === "email" ? ["--email-transport", "resend"] : []),
+      );
+      const config = join(directory, "relay.config.ts");
+      const original = await readFile(config, "utf8");
+      const prepared = await cli("setup", "--config", config);
+      expect(prepared.code, prepared.stderr).toBe(0);
+      expect(prepared.stdout).toContain("Preview passed:");
+      expect(await readFile(config, "utf8")).toBe(original);
+      const bindings = await readFile(
+        join(directory, "worker-configuration.d.ts"),
+        "utf8",
+      );
+      expect(bindings).toContain("DELIVERIES: Queue");
+      expect(bindings).not.toContain("EMAIL: SendEmail");
+      expect(bindings.includes("FORM_RATE_LIMIT: RateLimit")).toBe(
+        mode === "browser",
+      );
+      const local = join(directory, ".dev.vars");
+      const content = await readFile(local, "utf8");
+      if (mode === "server") {
+        const key = content.match(/^SERVER_API_KEY=(.+)$/m)?.[1];
+        expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+        expect(`${prepared.stdout}${prepared.stderr}`).not.toContain(key);
+      } else {
+        expect(content).toBe("RESEND_API_KEY=\nTURNSTILE_SECRET=\n");
+      }
+      if (process.platform !== "win32")
+        expect((await stat(local)).mode & 0o777).toBe(0o600);
+      const credentials = `${content}EXISTING_SECRET=private-test-only\n`;
+      await writeFile(local, credentials);
+      const repeated = await cli("setup", "--config", config);
+      expect(repeated.code, repeated.stderr).toBe(0);
+      expect(repeated.stdout).toContain("Preserved");
+      expect(await readFile(local, "utf8")).toBe(credentials);
+      expect(`${repeated.stdout}${repeated.stderr}`).not.toContain(
+        "private-test-only",
+      );
+    },
+    15_000,
+  );
+
+  it("stops setup before creating credentials or bindings when the fixture is invalid", async () => {
+    await cli(
+      "init",
+      "--mode",
+      "server",
+      "--provider",
+      "slack",
+      "--output",
+      directory,
+    );
+    await writeFile(
+      join(directory, "fixture.json"),
+      JSON.stringify({ event: "private-test-only" }),
+    );
+    const rejected = await cli(
+      "setup",
+      "--config",
+      join(directory, "relay.config.ts"),
+    );
+    expect(rejected.code).toBe(1);
+    expect(rejected.stderr).toContain("form schema");
+    expect(`${rejected.stdout}${rejected.stderr}`).not.toContain(
+      "private-test-only",
+    );
+    for (const file of [".dev.vars", "worker-configuration.d.ts"])
+      await expect(readFile(join(directory, file))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+  });
+
+  it("stops setup on configuration warnings before creating local files", async () => {
+    await cli(
+      "init",
+      "--mode",
+      "browser",
+      "--provider",
+      "slack",
+      "--output",
+      directory,
+    );
+    const rejected = await cli(
+      "setup",
+      "--config",
+      join(directory, "relay.config.ts"),
+    );
+    expect(rejected.code).toBe(1);
+    expect(rejected.stderr).toContain("PLACEHOLDER");
+    await expect(readFile(join(directory, ".dev.vars"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
 
   it("creates a server starter requiring only Slack and API-key credentials", async () => {
     const result = await cli(
