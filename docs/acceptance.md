@@ -1,41 +1,95 @@
-# v1.1 acceptance matrix
+# Acceptance matrix
 
-Tests run offline with Vitest, strict TypeScript fixtures, the current Cloudflare Vitest plugin, and local Miniflare. Unit suites never send live provider notifications. Workers tests mock outbound fetch; the DLQ fixture denies provider HTTP and uses temporary local KV solely to capture the original exhausted envelope for assertions. Production still requires no application database.
+The checks cover configuration contracts, request validation, provider behavior, and Queue settlement using Vitest, TypeScript fixtures, the Cloudflare Vitest plugin, and local Miniflare. Run the complete suite with:
 
-| Requirement | Evidence |
+```sh
+npm run check
+```
+
+Tests use fake credentials and mocked provider capabilities. Workers tests mock outbound HTTP. The dead-letter Queue fixture denies provider HTTP and uses temporary local KV to capture the exhausted job for assertions. The application requires no database.
+
+## Configuration
+
+| Behavior | Evidence |
 | --- | --- |
-| Typed Slack/Discord/email config; unknown provider | `tests/types/config.ts`; `contracts/config.test.ts` |
-| Non-empty revisions; cross-provider extra fields | Type fixtures plus runtime strict schema validation |
-| Unknown form destination; schema-inferred transformer fields | Type fixtures; runtime registry tests |
-| Duplicate provider types / destination IDs | Config tests; programmatic entries preserve duplicate detection |
-| Effective protection; explicit unsafe opt-out | Type/runtime config tests: API key or rate-limit + Turnstile; honeypot alone and non-boolean unsafe flags rejected |
-| Parse-once JSON and URL encoding; security separation | `contracts/ingress.test.ts` with strict business schema and minimal serialized jobs |
-| Multipart, raw limit, malformed encoding/UTF-8/duplicate keys | Ingress tests include slow/aborted stream cancellation; Worker HTTP tests assert zero publication |
-| Encoded message/job/batch preflight | Ingress tests for Unicode byte overflow and overlarge batches |
-| Required secret/binding unavailable | Dispatch/policy tests and Worker HTTP fail-closed checks |
-| Stable config; scoped secret resolution | Dispatch and runtime tests; frozen snapshots, normalized defaults, lazy scoped dependency factories |
-| Removed/rotated provider or revision | Revision tests assert no secret read or provider invocation |
-| Secret changed without revision | Invalid operational change documented in `operations.md`; symbolic references cannot detect it |
-| Provider accepted | Slack `200 ok`, Discord `wait=true` returned ID, email returned ID; Queue ack tests |
-| 429 / 5xx / timeout / unexpected throw | Provider and dispatch tests; bounded per-message retry |
-| Terminal failure; healthy sink | Invocation order asserts record before ack; Workers test uses real Queue producer |
-| Broken/hung sink | Explicit retry tests and bounded failure publisher; no auto-ack by successful handler return |
-| Exhausted retries | `tests/platform/dlq.test.ts`: actual local Queue mechanism preserves original `delivery` envelope |
-| Heterogeneous failure Queue / invalid originals | Strict known-envelope schema; sanitized invalid-job handling; runbook requires safe handling of unknown envelopes |
-| Mixed batch | Contract and Workers settlement tests: successful ack, retry only failed/retryable messages |
-| `sendBatch()` timeout/rejection | Rejection/timeout/late acceptance tests: one call, safe 503, `ACCEPTANCE_UNKNOWN`, retained pending publication, no zero-effect claim |
-| Confirmed publication | Workers test spies on one real Queue `sendBatch` before 202 |
-| HTTP retries / downstream duplicate risk | At-least-once and no durable HTTP idempotency documented; stable IDs do not deduplicate new requests |
-| No raw data / secret refs / tokens queued | Serialization assertions in ingress tests |
-| Email transport swapped | Same input/config tested against fake native binding and Resend HTTP transport |
-| New provider independent of runtime | `examples/custom-provider`; architecture import check; core compiles without platform types |
-| Slack/Discord mentions; email HTML/header injection | `contracts/providers.test.ts` |
-| No raw logs / upstream exception details | `contracts/policies.test.ts`; broken-sink logs inspected in dispatch tests |
-| CORS / methods / health / auth | Local Workers integration tests |
-| Build and binding declarations | `wrangler types --check`, strict `tsc`, and `wrangler deploy --dry-run` |
+| Typed provider configuration, required revisions, and schema-inferred message data | [Type fixtures](../tests/types/config.ts) and [configuration tests](../tests/contracts/config.test.ts) |
+| Rejection of unknown providers or destinations, invalid revisions, extra provider fields, and duplicate registry entries | [Configuration tests](../tests/contracts/config.test.ts) and [provider tests](../tests/contracts/providers.test.ts) |
+| Required API-key protection or rate limiting with Turnstile; explicit unsafe opt-out | [Type fixtures](../tests/types/config.ts) and [configuration tests](../tests/contracts/config.test.ts) |
+| Frozen configuration snapshots and parsed defaults | [Configuration tests](../tests/contracts/config.test.ts) and [runtime tests](../tests/contracts/runtime.test.ts) |
+| Scoped secret resolution and lazy provider dependency factories | [Dispatch tests](../tests/contracts/dispatch.test.ts) and [runtime tests](../tests/contracts/runtime.test.ts) |
+
+## HTTP ingestion
+
+| Behavior | Evidence |
+| --- | --- |
+| Single-pass JSON and URL-encoded parsing; security fields separated from business data | [Ingress tests](../tests/contracts/ingress.test.ts) |
+| Rejection of multipart bodies, oversized bodies, malformed encoding, invalid UTF-8, and duplicate keys | [Ingress tests](../tests/contracts/ingress.test.ts) and [Worker tests](../tests/integration/worker.test.ts) |
+| Cancellation of stalled or aborted body reads | [Ingress tests](../tests/contracts/ingress.test.ts) |
+| Guard execution before schema parsing and message transformation | [Ingress tests](../tests/contracts/ingress.test.ts) |
+| Encoded job and batch limits checked before publication | [Ingress tests](../tests/contracts/ingress.test.ts) |
+| Only rendered messages queued; raw submissions, secret references, and tokens excluded | [Ingress serialization tests](../tests/contracts/ingress.test.ts) |
+| Required capabilities and secrets checked before publication | [Runtime tests](../tests/contracts/runtime.test.ts) and [Worker tests](../tests/integration/worker.test.ts) |
+| CORS, allowed methods, health response, and authentication | [Worker tests](../tests/integration/worker.test.ts) |
+| One Queue batch submitted; `202` returned after confirmed publication | [Worker tests](../tests/integration/worker.test.ts) |
+| Publication rejection or timeout returns `503`; late acceptance remains possible and emits `ACCEPTANCE_UNKNOWN` | [Ingress tests](../tests/contracts/ingress.test.ts) |
+
+## Providers and policies
+
+| Behavior | Evidence |
+| --- | --- |
+| Acceptance requires Slack `200 ok`, a Discord message ID with `wait=true`, or an email transport message ID | [Provider tests](../tests/contracts/providers.test.ts) |
+| Slack and Discord mention handling, payload limits, and safe rendering | [Provider tests](../tests/contracts/providers.test.ts) |
+| Escaped email HTML and validated headers | [Provider tests](../tests/contracts/providers.test.ts) |
+| Cloudflare and Resend email transports share the same message and destination configuration | [Provider tests](../tests/contracts/providers.test.ts) |
+| API-key verification, Turnstile hostname and action checks, honeypot handling, and rate-limit results | [Policy tests](../tests/contracts/policies.test.ts) |
+| Log redaction of content, credentials, addresses, URLs, and upstream exceptions | [Policy tests](../tests/contracts/policies.test.ts) and [dispatch tests](../tests/contracts/dispatch.test.ts) |
+| Provider extensions use portable contracts | [Custom provider example](../examples/custom-provider/index.ts), [boundary checks](../scripts/check-boundaries.mjs), and core type checks |
+
+## Delivery and Queue settlement
+
+| Behavior | Evidence |
+| --- | --- |
+| Destination ID, provider, and revision checked before secret resolution or provider construction | [Dispatch tests](../tests/contracts/dispatch.test.ts) and [runtime tests](../tests/contracts/runtime.test.ts) |
+| Transient errors, timeouts, and unexpected exceptions produce bounded retries | [Provider tests](../tests/contracts/providers.test.ts) and [dispatch tests](../tests/contracts/dispatch.test.ts) |
+| Invalid envelopes, unsupported versions, and oversized jobs produce sanitized failures | [Dispatch tests](../tests/contracts/dispatch.test.ts) |
+| Terminal failure record published before acknowledgment | [Dispatch tests](../tests/contracts/dispatch.test.ts) and [Worker tests](../tests/integration/worker.test.ts) |
+| Failure-sink errors cause explicit retries; stalled writes are bounded | [Dispatch tests](../tests/contracts/dispatch.test.ts) and [Worker tests](../tests/integration/worker.test.ts) |
+| Mixed batches settle each message independently | [Dispatch tests](../tests/contracts/dispatch.test.ts) and [Worker tests](../tests/integration/worker.test.ts) |
+| Retry exhaustion preserves the original delivery envelope in the DLQ | [Local platform test](../tests/platform/dlq.test.ts) |
+| Failure Queue contains sanitized records and original exhausted jobs | [Dispatch tests](../tests/contracts/dispatch.test.ts), [local platform test](../tests/platform/dlq.test.ts), and [inspection procedure](operations.md#monitor-and-inspect-failures) |
+
+## Build checks
+
+| Command | Validates |
+| --- | --- |
+| `npm run lint` | Source lint and module import boundaries |
+| `npm run typecheck` | Application types, portable core types, and configuration fixtures |
+| `npm run types:check` | Generated Worker bindings match Wrangler configuration |
+| `npm run build` | Worker bundling with a Wrangler deployment dry run |
+
+## Tooling and browser example
+
+| Behavior | Evidence |
+| --- | --- |
+| Browser and server starters for Slack, Discord, native email, and Resend use only their selected bindings and credentials | [CLI tests](../tests/tooling/cli.test.ts) |
+| Existing starter files require explicit overwrite; local credentials survive regeneration | [CLI tests](../tests/tooling/cli.test.ts) |
+| Doctor detects missing credentials and bindings, Queue mismatches, and native email allowlist mismatches without printing values | [CLI tests](../tests/tooling/cli.test.ts) |
+| Preview separates guard fields, enforces schema and body limits, uses built-in renderers, and reports rendering failures | [CLI tests](../tests/tooling/cli.test.ts) |
+| HTML previews escape content, sandbox email HTML, and refuse implicit overwrite | [CLI tests](../tests/tooling/cli.test.ts) |
+| Browser submission uses URL-encoded fields, prevents concurrent sends, displays acceptance, and resets Turnstile | [Browser client tests](../tests/tooling/browser.test.ts) |
+| Browser errors preserve fields; uncertain acceptance receives no automatic retry and manual retry uses a new token | [Browser client tests](../tests/tooling/browser.test.ts) |
+
+Browser client tests exercise the submit event, status text, button state, and form fields with DOM boundary fixtures and mocked fetch. They do not run a live Turnstile challenge or provider delivery.
 
 ## Verification limits
 
-Local simulation validates application behavior and a local retry-exhaustion path, not production Cloudflare retention, paid-plan entitlements, provider credentials, sender DNS onboarding, or actual inbox delivery. No live Worker, Queue, secret, sender domain, or provider notification is created by the checks. Native email cancellation is unavailable; a deadline race may still be followed by acceptance. Discord cannot represent every core-valid message after safe escaping; over-limit payloads fail terminally without truncation. Field keys have an additional bounded length. These limits are documented in the development and operator guides.
+Local checks do not establish production retention, plan entitlements, valid provider credentials, sender-domain setup, or downstream delivery. They create no live Worker, Queue, secret, sender domain, or notification.
 
-The final repository commit and its CI run are the release evidence; this file describes what each check exercises rather than claiming checks that have not run.
+Operational constraints remain:
+
+- Changing a credential without updating the destination revision cannot be detected through symbolic secret references.
+- HTTP and delivery retries can duplicate notifications; correlation IDs do not provide durable deduplication.
+- Native email and Queue operations may be accepted after a timeout because the underlying calls cannot be canceled.
+- Provider rendering can exceed downstream payload limits even when the core message is valid. Such failures are terminal and content is not silently truncated.
+
+See [development limits](development.md#limits-and-rendering) and [deployment operations](operations.md). This matrix describes coverage; validation results for a change come from that change's check run and CI status.

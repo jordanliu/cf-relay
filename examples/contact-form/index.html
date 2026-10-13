@@ -3,13 +3,16 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Contact example — cf-relay</title>
+    <title>Contact example | cf-relay</title>
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <script src="./client.js" type="module"></script>
     <style>
       body { max-width: 40rem; margin: 3rem auto; padding: 1rem; font: 1rem system-ui; }
       label { display: block; margin: 1rem 0; }
       input, textarea { display: block; width: 100%; box-sizing: border-box; padding: .6rem; }
       .honeypot { position: absolute; left: -10000px; }
+      button { padding: .6rem 1rem; }
+      [role=status] { min-height: 1.5em; }
     </style>
   </head>
   <body>
@@ -22,6 +25,7 @@
       <label class="honeypot" aria-hidden="true">Leave empty <input name="website" tabindex="-1" autocomplete="off"></label>
       <div class="cf-turnstile" data-sitekey="YOUR_PUBLIC_SITE_KEY" data-action="contact"></div>
       <button type="submit">Submit</button>
+      <p role="status" aria-live="polite" aria-atomic="true"></p>
     </form>
     <p>A queued response confirms acceptance by the relay Queue. It does not confirm delivery to a person. Retrying after an uncertain error may duplicate notifications.</p>
   </body>

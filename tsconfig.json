@@ -19,6 +19,7 @@
     "packages/**/*.ts",
     "apps/**/*.ts",
     "examples/**/*.ts",
+    "scripts/**/*.ts",
     "tests/**/*.ts",
     "vitest*.ts"
   ],

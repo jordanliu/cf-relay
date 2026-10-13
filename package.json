@@ -14,6 +14,9 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "init": "node scripts/relay.mjs init",
+    "doctor": "node scripts/relay.mjs doctor",
+    "preview": "node scripts/relay.mjs preview",
     "format": "biome format --write .",
     "lint": "biome check . && node scripts/check-boundaries.mjs",
     "typecheck": "tsc --noEmit && tsc -p packages/core/tsconfig.json && tsc -p tests/types/tsconfig.json",
