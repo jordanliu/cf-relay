@@ -2,26 +2,22 @@
 
 ## Reporting a vulnerability
 
-Do not include credentials, form content, email addresses, or Queue payloads in public reports. For a sensitive issue, use GitHub private vulnerability reporting when enabled, or contact the repository owner privately before sharing details publicly.
+Use GitHub private vulnerability reporting when enabled, or contact the owner privately. Exclude credentials, addresses, form content, and Queue payloads from public reports.
 
 ## Deployment responsibilities
 
-The source API is pre-1.0. Operators are responsible for their Cloudflare account, secrets, destination revisions, Queue retention, monitoring, and access controls.
+Operators manage account access, secrets, destination revisions, monitoring, and retention. Store API keys on trusted servers and never commit or log credentials.
 
-Forms require API-key protection or rate limiting with Turnstile unless `unsafeAllowUnprotected: true` explicitly disables this requirement. Honeypot checks supplement these protections. CORS restricts browser origins and does not authenticate requests. Store API keys only on trusted servers.
+Forms require API-key protection or rate limiting with Turnstile unless `unsafeAllowUnprotected: true` is explicit. Honeypot is supplementary; CORS does not authenticate requests.
 
-Changes to destination identity or credentials require a new revision. Revision checks prevent pending jobs from being delivered to changed targets only when operators also update the revision for secret-value changes. See [revision changes and draining](docs/operations.md#revision-changes-and-draining).
+Update destination revisions for audience, endpoint, or credential changes. Follow the [draining procedure](docs/operations.md#revision-changes-and-draining).
 
 ## Extension trust
 
-Community providers run as trusted code in the same Worker. They have access to Worker globals and are not sandboxed. Review third-party modules before deployment.
-
-Local doctor and preview commands import the relay configuration. Preview also executes schemas and message transforms. These run as trusted code on the developer's machine. Review configuration before running the tools; they do not isolate arbitrary side effects.
+Providers run as trusted Worker code. Doctor and preview import configuration on the developer's machine; preview also executes schemas and transforms. These are not sandboxes. Review third-party code before use.
 
 ## Stored data and delivery
 
-Delivery jobs contain rendered notification content, which may include personal data. The delivery Queue and dead-letter Queue can retain this content. Sanitized terminal failure records omit rendered content, but share a Queue with original jobs that exhaust retries.
+Queues, fixtures, and previews can contain personal data. Sanitized failure records share the failure Queue with original exhausted jobs. Restrict access and retention; keep temporary previews in Git-ignored `.scratch`.
 
-Fixtures and notification previews can contain personal data. Keep local outputs in the Git-ignored `.scratch` directory and review them before sharing.
-
-Retries can duplicate notifications. Apply appropriate access controls and retention settings to both Queues; see [failure inspection](docs/operations.md#monitor-and-inspect-failures) and [retention and limits](docs/operations.md#retention-and-limits).
+Retries can duplicate notifications. See [failure inspection](docs/operations.md#monitor-and-inspect-failures) and [retention](docs/operations.md#retention-and-limits).

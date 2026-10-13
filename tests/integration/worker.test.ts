@@ -7,7 +7,7 @@ import {
 import { env } from "cloudflare:workers";
 import type { DeliveryJob } from "@cf-relay/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import worker, { type WorkerEnv } from "../../apps/worker/src/index";
+import worker, { type WorkerEnv } from "./worker";
 
 declare global {
   namespace Cloudflare {

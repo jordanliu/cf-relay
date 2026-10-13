@@ -1,82 +1,34 @@
-# Deployment and operations
-
-Deploy cf-relay into your Cloudflare account. The repository includes configuration and local tests; CI does not provision resources or credentials.
+# Operations
 
 ## Configure and deploy
 
-### 1. Authenticate
+Start with the [README's Slack server starter](../README.md#quick-start), or choose [another profile](development.md#generate-a-starter).
 
-Log in with Wrangler and select the intended Cloudflare account:
+| File | Configure |
+| --- | --- |
+| [relay.config.ts](../apps/worker/relay.config.ts) | Schemas, guards, messages, destinations, revisions |
+| [wrangler.jsonc](../apps/worker/wrangler.jsonc) | Worker and Queue names, bindings, consumer settings |
+
+Keep producer, consumer, and dead-letter Queue names consistent. Run `npm run doctor -- --strict` to check configuration and list required secrets.
+
+Authenticate and create the Queues using the names in Wrangler:
 
 ```sh
 npx wrangler login
-```
-
-### 2. Configure the Worker
-
-| File | Configuration |
-| --- | --- |
-| [relay.config.ts](../apps/worker/relay.config.ts) | Forms, input schemas, message transforms, destinations, secret references, and destination revisions |
-| [wrangler.jsonc](../apps/worker/wrangler.jsonc) | Worker and Queue names, email allowlists, rate-limit namespace, and consumer settings |
-
-Remove unused forms and destinations. Rename the Worker and Queues if the default names already exist in the account. Update all producer, consumer, and dead-letter Queue references together.
-
-For a minimal configuration, generate a [single-form starter](../README.md#2-configure-forms-and-destinations). Run `npm run doctor -- --strict` after editing configuration to check required secret names, bindings, Queue wiring, email allowlists, and placeholders.
-
-For native email delivery, set exact sender and recipient allowlists. Choose an account-unique rate-limit `namespace_id` unless shared counters are intentional. Bindings using the same namespace share counters across Workers for the same key; see the [rate-limit binding documentation](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
-
-### 3. Configure request protection
-
-Public browser forms require rate limiting and Turnstile. Server forms use API keys. Exact-origin CORS is enforced separately and does not authenticate requests.
-
-Create a Turnstile widget for the browser hostname and set its public site key in the HTML client. Configure `expectedHostname` and, when used, `expectedAction` to match verification results. Store `TURNSTILE_SECRET` as a Wrangler secret. Tokens are not queued or logged.
-
-The rate limiter combines the form ID with a transient hash of the client IP. `CF-Connecting-IP` is trusted only for requests reaching the Worker through Cloudflare. Local or alternative runtime adapters must supply a trusted actor identity. IP hashes are not placed in jobs or logs. Rate limiting provides distributed abuse protection rather than an exact global quota or destination delivery schedule.
-
-### 4. Create Queues and set secrets
-
-Create both Queues using the names configured in Wrangler:
-
-```sh
 npx wrangler queues create cf-relay-deliveries
 npx wrangler queues create cf-relay-failures
 ```
 
-Configure retention for the selected plan and alerts before accepting production submissions. See [retention and limits](#retention-and-limits).
-
-The default forms use these secrets:
-
-| Secret binding | Used by |
-| --- | --- |
-| `ENGINEERING_SLACK_WEBHOOK_V1` | Slack destination for `contact` and `events` |
-| `COMMUNITY_DISCORD_WEBHOOK_V1` | Discord destination for `contact` |
-| `TURNSTILE_SECRET` | Turnstile guard for `contact` |
-| `SERVER_API_KEY` | API-key guard for `events` |
-
-Set the secrets required by the retained forms and destinations:
+For the README's Slack server starter, set:
 
 ```sh
-npx wrangler secret put ENGINEERING_SLACK_WEBHOOK_V1 --config apps/worker/wrangler.jsonc
-npx wrangler secret put COMMUNITY_DISCORD_WEBHOOK_V1 --config apps/worker/wrangler.jsonc
-npx wrangler secret put TURNSTILE_SECRET --config apps/worker/wrangler.jsonc
+npx wrangler secret put SLACK_WEBHOOK_V1 --config apps/worker/wrangler.jsonc
 npx wrangler secret put SERVER_API_KEY --config apps/worker/wrangler.jsonc
 ```
 
-Use interactive prompts. Do not commit credentials, pass values in command arguments, or print them in logs. For local development, copy [the secret template](../apps/worker/.dev.vars.example) to `apps/worker/.dev.vars`; this file is ignored by Git.
+For other configurations, set the names reported by doctor. Enter values through Wrangler's prompts. Declare secret types in `WorkerEnv`; platform binding types are generated.
 
-Run `npm run doctor -- --local` to check local credential presence without printing values. Generated starters use their own `.dev.vars.example` and report the secret names required by the selected profile. Doctor does not inspect deployed secret values or validate credentials with providers.
-
-Generated types describe platform bindings. Declare secret names separately in `WorkerEnv` in [the Worker entry point](../apps/worker/src/index.ts); static tooling cannot read live credential values.
-
-### 5. Configure email, when used
-
-For Cloudflare Email Service, onboard the sending domain and configure its DNS and authentication requirements. Restrict senders and recipients in the `EMAIL` binding. Follow [Cloudflare email setup](https://developers.cloudflare.com/email-service/get-started/send-emails/) and [binding restrictions](https://developers.cloudflare.com/email-service/configuration/send-bindings/).
-
-The native transport calls `SendEmail.send()`, validates the returned `messageId`, and classifies errors by their safe string codes. For Resend, follow [the transport configuration guide](development.md#swap-email-transports).
-
-### 6. Validate and deploy
-
-Regenerate bindings after Wrangler configuration changes, then run the checks and deploy:
+Validate and deploy:
 
 ```sh
 npm run doctor -- --strict
@@ -85,73 +37,96 @@ npm run check
 npx wrangler deploy --config apps/worker/wrangler.jsonc
 ```
 
-Checks validate source, schemas, binding declarations, and local runtime behavior. They cannot verify live credentials, sender-domain setup, or downstream delivery. The HTTP handler checks required selected-form secrets and capabilities before publication; dispatch rejects delivery attempts when required capabilities are unavailable.
+Checks perform local validation and a deployment dry run. The final command deploys. Set any custom domain or route, update client URLs, and verify delivery with a controlled submission to a destination you own.
 
-Use [notification preview](development.md#preview-notifications) to inspect rendering before a controlled live submission. Preview performs no delivery and bypasses request guards. Serve the browser example's HTML and JavaScript together. Its client resets single-use Turnstile tokens after a request and reports uncertain acceptance without automatically retrying. See [Turnstile token validation](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/).
+## Browser and email setup
 
-The final command deploys the Worker. Configure a custom domain or route if required, then update client endpoint URLs and allowed browser origins. Verify each configured provider with a controlled submission to a destination you own.
+For browser forms, configure the page's exact `allowedOrigins`, Turnstile `expectedHostname`, and action `contact`. Set the public site key and endpoint in the [HTML client](../examples/contact-form/index.html), and serve it with [client.js](../examples/contact-form/client.js). Its `website` honeypot stays empty; Turnstile tokens are refreshed after requests. See [token validation](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/).
+
+Choose an account-unique rate-limit namespace unless shared counters are intentional. Rate limiting uses the form ID and a transient client-IP hash; it is distributed abuse protection, not an exact global quota. Local adapters must supply a trusted client identity. See [rate-limit bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
+
+For native email, [onboard the sending domain](https://developers.cloudflare.com/email-service/get-started/send-emails/) and restrict senders and recipients in the [`EMAIL` binding](https://developers.cloudflare.com/email-service/configuration/send-bindings/). For Resend, use the [transport guide](development.md#swap-email-transports).
+
+## Local development
+
+Copy the selected starter's secret template:
+
+```sh
+cp apps/worker/.dev.vars.example apps/worker/.dev.vars
+```
+
+Fill in `.dev.vars`, then run:
+
+```sh
+npm run doctor -- --local
+npm run dev
+```
+
+The Worker runs at `http://localhost:8787`. Use the [README request](../README.md#send-a-request) with this endpoint. Use test destinations: local provider calls can send real notifications. For rendering without delivery, use [preview](development.md#preview-notifications).
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Doctor reports a missing local secret | Fill in the named binding in `.dev.vars`; run with `--local` again |
+| `401` | Bearer token matches `SERVER_API_KEY` |
+| `403` | Exact page origin, Turnstile hostname/action, fresh token, empty honeypot |
+| `422` | Fixture matches the schema and [message limits](development.md#limits-and-rendering) |
+| `429` | Wait before retrying; review rate-limit settings |
+| `503` | Response error code, required secrets/bindings, Queue availability |
+| Accepted request but no notification | Worker logs, delivery backlog, failure Queue |
+
+Doctor cannot verify live credentials, DNS, or provider acceptance. `/healthz` only confirms the HTTP handler responds. Queue publication can remain uncertain after `503`; a retry may duplicate notifications.
 
 ## Revision changes and draining
 
-Change a destination's revision when its recipient, endpoint identity, or credential value changes, including values behind an existing secret binding. Prefer a new destination ID and secret name when changing the audience or workspace. Jobs must match the current destination ID, provider type, and revision before secrets are resolved or delivery starts.
+Change a destination's revision when its audience, endpoint, or credential changes, including values behind an existing secret name. Jobs must match the current destination ID, provider, and revision before delivery.
 
-To preserve pending deliveries to the existing target:
+To preserve pending deliveries:
 
 1. Stop incoming submissions.
-2. Monitor the delivery backlog and in-flight attempts until drained.
-3. Update configuration, credentials, and revision together, then resume submissions.
+2. Wait for backlog and in-flight attempts to drain.
+3. Update configuration, credentials, and revision together; resume submissions.
 
-Alternatively, retain explicit old and new destination IDs and their credentials until old jobs drain. There is no historical destination store or automatic migration.
-
-Removing or rotating a destination while old jobs remain produces `DESTINATION_REVISION_MISMATCH`. The dispatcher publishes a sanitized terminal failure before acknowledging the job. Rotating a credential without changing the revision violates the deployment contract; symbolic secret references cannot detect that change.
+Alternatively, keep explicit old and new destination IDs and credentials until old jobs drain. Removing or changing a destination produces `DESTINATION_REVISION_MISMATCH` for old jobs. Credential rotation without a revision change cannot be detected through secret references.
 
 ## Retry budgets and uncertain acceptance
 
-The default consumer configuration is defined in [wrangler.jsonc](../apps/worker/wrangler.jsonc):
+Default consumer settings:
 
 | Setting | Value |
 | --- | --- |
-| Maximum retries | 5 |
-| Maximum batch size | 10 |
-| Maximum batch wait | 5 seconds |
-| Maximum concurrent consumer invocations | 10 |
-| cf-relay retry-delay cap | 1 hour |
+| Retries | 5 |
+| Batch size / wait | 10 messages / 5 seconds |
+| Concurrent invocations | 10 |
+| Retry-delay cap | 1 hour |
 
-Attempts come from `message.attempts`. Retry delays are positive integer seconds with bounded upstream `Retry-After` hints. Cloudflare permits delays up to 24 hours; cf-relay uses the lower cap above. See [Queue limits](https://developers.cloudflare.com/queues/platform/limits/).
-
-Messages are processed sequentially within each batch; consumer invocations can run concurrently. All destinations share the consumer, so these settings do not provide per-destination throttling.
+Attempts use `message.attempts`. Retry delays are positive integer seconds and bound upstream `Retry-After` hints. Messages run sequentially per batch; concurrent batches share the consumer, with no per-destination throttling. See [batching and retries](https://developers.cloudflare.com/queues/configuration/batching-retries/) and [concurrency](https://developers.cloudflare.com/queues/configuration/consumer-concurrency/).
 
 | Operation | Deadline |
 | --- | --- |
-| Queue publication | 5 seconds |
-| Failure-record publication | 5 seconds |
+| Raw-body read, each guard, Queue or failure publication | 5 seconds each |
 | Provider attempt | 10 seconds |
-| Each request guard | 5 seconds |
-| Raw-body reading | 5 seconds |
 
-HTTP sends receive an `AbortSignal` and disable redirects. Native Cloudflare email and Queue writes cannot be canceled through these APIs and may be accepted after the deadline. Pending promises are retained where possible, but a timeout does not establish that an operation had no effect. Retrying can duplicate a notification or failure record. Resend delivery also has no durable idempotency guarantee.
+HTTP sends receive an `AbortSignal` and disable redirects. Native email and Queue writes cannot be canceled and may succeed after a timeout. Pending work is retained where possible; retries can duplicate notifications or failure records. Delivery has no durable deduplication.
 
 ## Monitor and inspect failures
-
-Use Workers Logs or Wrangler to inspect redacted event codes and correlation IDs:
 
 ```sh
 npx wrangler tail --config apps/worker/wrangler.jsonc
 ```
 
-Monitor backlog and oldest-message age for both Queues. Alert on nonzero failure backlog and messages approaching retention expiry.
+Logs contain safe event codes and correlation IDs, omitting content, credentials, addresses, URLs, and upstream errors. Monitor both Queues' backlog and oldest-message age; alert on failure backlog and approaching retention expiry.
 
-Events cover submission rejection, queuing, uncertain publication, delivery attempts and outcomes, revision mismatches, and failure-sink errors. Logger fields are allowlisted. Raw bodies, addresses, tokens, endpoint URLs, upstream response bodies, and error messages are omitted.
+The failure Queue contains:
 
-The shared `cf-relay-failures` Queue receives sanitized failure records and original jobs moved by the platform to the dead-letter Queue (DLQ). Identify envelopes by `kind` and `version`:
-
-| Envelope | Meaning | Contains rendered content? |
+| Envelope | Meaning | Rendered content? |
 | --- | --- | --- |
-| `failure.record`, version 1 | Dispatcher terminal or invalid-job record | No |
-| `delivery`, version 1 | Original job exhausted platform retries | Yes, may contain PII |
-| Anything else | Malformed/unsupported original exhausted retries | Unknown; treat as sensitive |
+| `failure.record`, version 1 | Terminal or invalid-job metadata | No |
+| `delivery`, version 1 | Original job exhausted platform retries | Yes, possibly personal data |
+| Other | Malformed or unsupported original job | Unknown; treat as sensitive |
 
-Use the authenticated [Queue messages peek API](https://developers.cloudflare.com/api/typescript/resources/queues/subresources/messages/methods/peek/) to inspect messages without leasing or consuming them. The endpoint accepts `Queues Write` or `Workers Scripts Write` permissions, even for inspection. Restrict the token to the required account and operators. Use peek rather than poll or acknowledgment endpoints for read-only investigation.
+Use the authenticated [peek API](https://developers.cloudflare.com/api/typescript/resources/queues/subresources/messages/methods/peek/) to inspect without leasing or consuming messages:
 
 ```text
 POST https://api.cloudflare.com/client/v4/accounts/{account_id}/queues/{queue_id}/messages/peek
@@ -161,22 +136,8 @@ Content-Type: application/json
 {"batch_size":1}
 ```
 
-Do not paste envelopes into public issues or analytics. `failureEnvelopeSchema.safeParse()` recognizes supported shapes; treat unrecognized shapes as sensitive and do not print or replay them automatically.
-
-Resolve the underlying failure before deciding whether to resubmit. Resubmission can duplicate notifications or change the destination audience. This release has no replay API or interface.
+Peek requires `Queues Write` or `Workers Scripts Write`; restrict tokens to the required account and operators. Validate supported envelopes with `failureEnvelopeSchema.safeParse()`. Do not publish payloads or automatically replay unknown shapes. Resolve the failure before resubmitting; this release has no replay API. See [dead-letter Queues](https://developers.cloudflare.com/queues/configuration/dead-letter-queues/).
 
 ## Retention and limits
 
-Queues store rendered messages until acknowledgment, expiry, or transfer to the DLQ. Sanitized failure records and original jobs share the failure Queue's retention settings.
-
-Paid-plan retention defaults to four days and is configurable up to 14 days. Free-plan retention is fixed at 24 hours. See [Queue configuration](https://developers.cloudflare.com/queues/configuration/configure-queues/) and [plan limits](https://developers.cloudflare.com/queues/platform/limits/).
-
-Set retention deliberately and export sanitized incident metadata to external observability if a longer history is required. Messages in an unconsumed DLQ still expire.
-
-## Platform references
-
-- [Queue settlement APIs](https://developers.cloudflare.com/queues/configuration/javascript-apis/)
-- [Batching and retries](https://developers.cloudflare.com/queues/configuration/batching-retries/)
-- [Dead-letter Queues](https://developers.cloudflare.com/queues/configuration/dead-letter-queues/)
-- [Consumer concurrency](https://developers.cloudflare.com/queues/configuration/consumer-concurrency/)
-- [Native email API and error codes](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/)
+Queues retain rendered content until acknowledgment, expiry, or DLQ transfer. Paid-plan retention defaults to four days, configurable up to 14; free-plan retention is fixed at 24 hours. Unconsumed failure messages also expire. Set retention deliberately and export sanitized incident metadata if longer history is needed. See [configuration](https://developers.cloudflare.com/queues/configuration/configure-queues/) and [limits](https://developers.cloudflare.com/queues/platform/limits/).

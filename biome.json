@@ -4,6 +4,7 @@
     "includes": [
       "**",
       "!apps/worker/worker-configuration.d.ts",
+      "!tests/integration/worker-configuration.d.ts",
       "!docs/architecture-v1.1.md",
       "!dist",
       "!.wrangler"
