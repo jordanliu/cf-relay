@@ -4,6 +4,7 @@
   "main": "apps/worker/src/index.ts",
   "compatibility_date": "2026-10-10",
   "compatibility_flags": ["nodejs_compat"],
+  "secrets": { "required": ["SERVER_API_KEY"] },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1

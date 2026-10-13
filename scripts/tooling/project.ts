@@ -25,25 +25,35 @@ export interface WranglerConfig {
   [key: string]: unknown;
 }
 
-export async function readProject(root: string, configPath?: string) {
+export async function readProject(
+  root: string,
+  configPath?: string,
+  overrides: {
+    source?: string;
+    entrySource?: string;
+    wrangler?: WranglerConfig;
+  } = {},
+) {
   const paths = projectPaths(root, configPath);
   let source: string;
   let wrangler: WranglerConfig;
   let entrySource: string;
   try {
-    source = await readFile(paths.configPath, "utf8");
+    source = overrides.source ?? (await readFile(paths.configPath, "utf8"));
     const parsed = ts.parseConfigFileTextToJson(
       "wrangler.jsonc",
       await readFile(paths.wranglerPath, "utf8"),
     );
     if (parsed.error || !parsed.config || typeof parsed.config !== "object")
       throw new Error();
-    wrangler = parsed.config;
+    wrangler = overrides.wrangler ?? parsed.config;
     if (typeof wrangler.main !== "string") throw new Error();
-    entrySource = await readFile(
-      resolve(dirname(paths.wranglerPath), wrangler.main),
-      "utf8",
-    );
+    entrySource =
+      overrides.entrySource ??
+      (await readFile(
+        resolve(dirname(paths.wranglerPath), wrangler.main),
+        "utf8",
+      ));
   } catch {
     throw new ToolError(
       "Cannot read the relay configuration, Wrangler JSONC, or Worker entry point. Check --config and the Wrangler main path.",
@@ -55,7 +65,12 @@ export async function readProject(root: string, configPath?: string) {
   let config: RelayConfig;
   try {
     await build({
-      entryPoints: [paths.configPath],
+      stdin: {
+        contents: source,
+        resolveDir: dirname(paths.configPath),
+        sourcefile: paths.configPath,
+        loader: "ts",
+      },
       bundle: true,
       platform: "node",
       format: "esm",
@@ -75,6 +90,38 @@ export async function readProject(root: string, configPath?: string) {
 }
 
 export type Project = Awaited<ReturnType<typeof readProject>>;
+
+export function readinessSecrets(source: string): string[] {
+  const file = ts.createSourceFile(
+    "entry.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const names = new Set<string>();
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isPropertyAssignment(node) &&
+      node.name.getText(file) === "readinessGuard"
+    ) {
+      const collect = (child: ts.Node) => {
+        if (
+          ts.isCallExpression(child) &&
+          child.expression.getText(file) === "secret" &&
+          child.arguments.length === 1 &&
+          child.arguments[0] &&
+          ts.isStringLiteralLike(child.arguments[0])
+        )
+          names.add(child.arguments[0].text);
+        ts.forEachChild(child, collect);
+      };
+      collect(node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return [...names];
+}
 
 export function inspectSource(source: string, property: string): string[] {
   const values: string[] = [];

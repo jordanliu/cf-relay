@@ -2,11 +2,17 @@ import { execFile } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import { z } from "zod";
 import { ToolError } from "./errors";
 import { projectPaths } from "./paths";
+import {
+  destinationSource,
+  type ProviderOptions,
+  providerSecrets,
+  providerSettings,
+  selectedProviders,
+} from "./providers";
 
-async function formatSource(
+export async function formatSource(
   root: string,
   file: string,
   content: string,
@@ -36,7 +42,7 @@ async function formatSource(
   });
 }
 
-type Options = {
+export type StarterOptions = ProviderOptions & {
   mode?: string | undefined;
   provider?: string | undefined;
   "email-transport"?: string | undefined;
@@ -46,25 +52,19 @@ type Options = {
   to?: string | undefined;
   output?: string | undefined;
   force?: boolean | undefined;
+  "dry-run"?: boolean | undefined;
 };
 
 export async function createStarter(
   root: string,
-  options: Options,
+  options: StarterOptions,
 ): Promise<void> {
   if (options.mode !== "browser" && options.mode !== "server")
     throw new ToolError("Choose --mode browser or --mode server.");
-  if (!["slack", "discord", "email"].includes(options.provider ?? ""))
-    throw new ToolError("Choose --provider slack, discord, or email.");
   const mode = options.mode;
-  const provider = options.provider as "slack" | "discord" | "email";
-  const transport = options["email-transport"] ?? "cloudflare";
-  if (!["cloudflare", "resend"].includes(transport))
-    throw new ToolError("Choose --email-transport cloudflare or resend.");
-  if (options["email-transport"] && provider !== "email")
-    throw new ToolError(
-      "--email-transport applies only to the email provider.",
-    );
+  const selected = selectedProviders(options);
+  const settings = providerSettings(options, selected);
+  const { transport, from, to } = settings;
   const name = options.name ?? "cf-relay";
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(name))
     throw new ToolError(
@@ -83,44 +83,35 @@ export async function createStarter(
       "--origin must be an exact HTTP(S) origin without a path.",
     );
   }
-  const from = options.from ?? "forms@example.com";
-  const to = (options.to ?? "team@example.com")
-    .split(",")
-    .map((value) => value.trim());
-  if (
-    provider === "email" &&
-    (!z.email().safeParse(from).success ||
-      !z.array(z.email()).min(1).max(50).safeParse(to).success)
-  )
-    throw new ToolError("Supply valid email addresses with --from and --to.");
   const output = resolve(root, options.output ?? "apps/worker");
   const paths = projectPaths(root, join(output, "relay.config.ts"));
   const browser = mode === "browser";
   const formId = browser ? "contact" : "events";
-  const webhookSecret =
-    provider === "slack" ? "SLACK_WEBHOOK_V1" : "DISCORD_WEBHOOK_V1";
+  const ids = selected.map((provider) =>
+    options.provider ? "primary" : provider,
+  );
   const secrets = [
-    ...(provider === "email"
-      ? transport === "resend"
-        ? ["RESEND_API_KEY"]
-        : []
-      : [webhookSecret]),
-    browser ? "TURNSTILE_SECRET" : "SERVER_API_KEY",
+    ...selected.flatMap((provider) => providerSecrets(provider, settings)),
+    ...(browser ? ["TURNSTILE_SECRET"] : []),
+    "SERVER_API_KEY",
   ];
+  const secretTemplate = `${["SERVER_API_KEY", ...(browser ? ["TURNSTILE_SECRET"] : [])].map((name) => `${name}=\n`).join("")}\n${secrets
+    .filter((name) => name !== "TURNSTILE_SECRET" && name !== "SERVER_API_KEY")
+    .map(
+      (name) =>
+        `\n# Configure the selected provider after dashboard deployment.\n# ${name}=\n`,
+    )
+    .join("")}`;
   const q = JSON.stringify;
   const guardImports = browser ? "honeypot, rateLimit, turnstile" : "apiKey";
   const config = `import { defineDestinations, defineForm, defineForms, defineProviders, defineRelay, secret } from "@cf-relay/core";
 import { ${guardImports} } from "@cf-relay/policies";
-import { ${provider}Provider } from "@cf-relay/provider-${provider}";
+${selected.map((provider) => `import { ${provider}Provider } from "@cf-relay/provider-${provider}";`).join("\n")}
 import { z } from "zod";
 
-const providers = defineProviders([${provider}Provider()] as const);
+const providers = defineProviders([${selected.map((provider) => `${provider}Provider()`).join(", ")}] as const);
 const destinations = defineDestinations(providers, {
-  primary: {
-    provider: ${q(provider)},
-    revision: "v1",
-    ${provider === "email" ? `from: ${q(from)},\n    to: ${q(to)},` : `webhook: secret(${q(webhookSecret)}),`}
-  },
+  ${selected.map((provider, index) => `${q(ids[index])}: ${destinationSource(provider, settings)},`).join("\n  ")}
 });
 const forms = defineForms(destinations, {
   ${formId}: defineForm({
@@ -130,24 +121,26 @@ const forms = defineForms(destinations, {
     ${browser ? `allowedOrigins: [${q(origin.origin)}],\n    ` : ""}guards: [
       ${browser ? `rateLimit({ binding: "FORM_RATE_LIMIT" }),\n      turnstile({ tokenField: "cf-turnstile-response", secret: secret("TURNSTILE_SECRET"), expectedHostname: ${q(origin.hostname)}, expectedAction: "contact" }),\n      honeypot({ field: "website" }),` : 'apiKey({ secret: secret("SERVER_API_KEY") }),'}
     ],
-    destinations: ["primary"],
+    destinations: ${q(ids)},
     message: ({ data }) => (${browser ? '{ title: "New contact submission", text: data.message, fields: { Name: data.name }, replyTo: data.email }' : "{ title: data.event, text: data.details }"}),
   }),
 });
 export default defineRelay({ providers, destinations, forms });
 `;
-  const emailImport =
-    provider === "email"
-      ? `import { ${transport === "resend" ? "resend" : "cloudflare"}EmailTransport } from "@cf-relay/email-${transport}";\n`
-      : "";
-  const entry = `${emailImport}import { createCloudflareRelay } from "@cf-relay/runtime-cloudflare";
+  const emailImport = selected.includes("email")
+    ? `import { ${transport === "resend" ? "resend" : "cloudflare"}EmailTransport } from "@cf-relay/email-${transport}";\n`
+    : "";
+  const entry = `${emailImport}import { secret } from "@cf-relay/core";
+import { apiKey } from "@cf-relay/policies";
+import { createCloudflareRelay } from "@cf-relay/runtime-cloudflare";
 import config from "../relay.config";
 
 export type WorkerEnv = WorkerBindings & {
 ${secrets.map((secret) => `  ${secret}: string;`).join("\n")}
 };
 const relay = createCloudflareRelay(config, {
-  providerDependencies: {${provider === "email" ? `\n    email: (env: WorkerEnv) => ({ transport: ${transport === "resend" ? "resendEmailTransport(env.RESEND_API_KEY)" : "cloudflareEmailTransport(env.EMAIL)"} }),\n  ` : ""}},
+  readinessGuard: apiKey({ secret: secret("SERVER_API_KEY") }),
+  providerDependencies: {${selected.includes("email") ? `\n    email: (env: WorkerEnv) => ({ transport: ${transport === "resend" ? "resendEmailTransport(env.RESEND_API_KEY)" : "cloudflareEmailTransport(env.EMAIL)"} }),\n  ` : ""}},
 });
 export default {
   fetch: (request: Request, env: WorkerEnv, ctx: ExecutionContext) => relay.handleRequest(request, env, ctx),
@@ -164,8 +157,11 @@ export default {
       dirname(paths.wranglerPath),
       join(output, "src/index.ts"),
     ).replaceAll("\\", "/"),
-    compatibility_date: "2026-10-10",
+    compatibility_date: "2026-10-13",
     compatibility_flags: ["nodejs_compat"],
+    secrets: {
+      required: ["SERVER_API_KEY", ...(browser ? ["TURNSTILE_SECRET"] : [])],
+    },
     observability: { enabled: true, head_sampling_rate: 1 },
     queues: {
       producers: [
@@ -183,7 +179,7 @@ export default {
         },
       ],
     },
-    ...(provider === "email" && transport === "cloudflare"
+    ...(selected.includes("email") && transport === "cloudflare"
       ? {
           send_email: [
             {
@@ -210,9 +206,17 @@ export default {
     [paths.configPath]: config,
     [paths.wranglerPath]: `${JSON.stringify(wrangler, null, 2)}\n`,
     [join(output, "src/index.ts")]: entry,
-    [`${paths.secretsPath}.example`]: `${secrets.map((secret) => `${secret}=`).join("\n")}\n`,
+    [`${paths.secretsPath}.example`]: secretTemplate,
     [paths.fixturePath]: `${JSON.stringify(browser ? { name: "Example sender", email: "sender@example.com", message: "A local preview submission." } : { event: "Example event", details: "A local preview submission." }, null, 2)}\n`,
   };
+  if (options["dry-run"]) {
+    console.log(
+      `Would create ${mode}/${selected.join(",")} starter. Required secrets: ${secrets.join(", ")}.`,
+    );
+    for (const file of Object.keys(files))
+      console.log(`Create ${relative(root, file)}.`);
+    return;
+  }
   for (const file of Object.keys(files)) {
     try {
       await access(file);
@@ -234,7 +238,7 @@ export default {
     await writeFile(path, content, { flag: options.force ? "w" : "wx" });
   }
   console.log(
-    `Created ${mode}/${provider} starter in ${relative(root, output) || "."}.`,
+    `Created ${mode}/${selected.join(",")} starter in ${relative(root, output) || "."}.`,
   );
   console.log(
     `Generate bindings: npx wrangler types --config ${JSON.stringify(relative(root, paths.wranglerPath))} ${JSON.stringify(relative(root, paths.bindingsPath))} --env-interface WorkerBindings --include-runtime false`,

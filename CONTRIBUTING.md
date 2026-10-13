@@ -24,8 +24,8 @@ Preserve literal keys and schema inference in public builders. Keep type erasure
 
 Test observable behavior with fake credentials and mocked provider calls. Tests must not deploy resources or send live notifications. Worker integration tests use a fixed fixture independent of the application configuration; local platform fixtures may use temporary storage.
 
-- Providers: cover rendering, acceptance, payload limits, cancellation, and transient/terminal failures.
-- Tooling and browser client: cover generated profiles, overwrite behavior, credential redaction, field preservation, and fresh Turnstile tokens on retry.
+- Providers: cover rendering, acceptance, payload limits, cancellation, transient/terminal failures, and independent signature verification where applicable.
+- Tooling and browser client: cover generated profiles, configuration and credential preservation, dry runs, cancellation, redaction, and fresh Turnstile tokens on retry.
 - Queues: preserve independent settlement, sanitized failure publication before acknowledgment, uncertain acceptance, and revision checks before credential resolution.
 
 Include validation results and any wire-format or deployment migration in the pull request. See [test coverage](docs/acceptance.md) and [security requirements](SECURITY.md).

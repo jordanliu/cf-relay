@@ -1,3 +1,5 @@
+import { secret } from "@cf-relay/core";
+import { apiKey } from "@cf-relay/policies";
 import { createCloudflareRelay } from "@cf-relay/runtime-cloudflare";
 import config from "../relay.config";
 
@@ -6,6 +8,7 @@ export type WorkerEnv = WorkerBindings & {
   SERVER_API_KEY: string;
 };
 const relay = createCloudflareRelay(config, {
+  readinessGuard: apiKey({ secret: secret("SERVER_API_KEY") }),
   providerDependencies: {},
 });
 export default {

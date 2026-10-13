@@ -8,6 +8,8 @@ Use GitHub private vulnerability reporting when enabled, or contact the owner pr
 
 Operators manage account access, secrets, destination revisions, monitoring, and retention. Store API keys on trusted servers and never commit or log credentials.
 
+The operator API key protects readiness diagnostics. Browser clients use Turnstile and never receive this key. Webhook URLs come from trusted configuration; use independent signing keys and verify signatures, timestamps, and webhook IDs at the receiver. See [webhook authentication](docs/webhooks.md#authentication-and-receiving).
+
 Forms require API-key protection or rate limiting with Turnstile unless `unsafeAllowUnprotected: true` is explicit. Honeypot is supplementary; CORS does not authenticate requests.
 
 Update destination revisions for audience, endpoint, or credential changes. Follow the [draining procedure](docs/operations.md#revision-changes-and-draining).

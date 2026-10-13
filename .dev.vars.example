@@ -1,2 +1,15 @@
-SLACK_WEBHOOK_V1=
+# Required during dashboard deployment.
 SERVER_API_KEY=
+
+# Configure selected providers in relay.config.ts after deployment.
+# Slack (included configuration):
+# SLACK_WEBHOOK_V1=
+# Discord:
+# DISCORD_WEBHOOK_V1=
+# Email via Resend:
+# RESEND_API_KEY=
+# Generic webhook:
+# WEBHOOK_URL_V1=
+# WEBHOOK_SIGNING_SECRET_V1=
+# WEBHOOK_BEARER_TOKEN_V1=
+# Native email uses the EMAIL binding and a verified sending domain.

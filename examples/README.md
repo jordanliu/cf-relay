@@ -7,6 +7,7 @@ cf-relay deploys an API. These clients and configuration examples are optional; 
 | [Server client](server-to-server/client.ts) | Send authenticated JSON events from a trusted server |
 | [Browser client](contact-form/index.html) | Submit URL-encoded fields with Turnstile and status feedback |
 | [Multi-destination configuration](multi-destination/relay.config.ts) | Route protected browser and server submissions to Slack, Discord, and email |
+| [Webhook receiver](webhook-receiver/index.ts) | Verify HMAC signatures and deduplicate through a durable store |
 | [Custom provider](custom-provider/index.ts) | Implement and register another delivery provider |
 | [Fixtures](fixtures/) | Preview notification content without sending |
 

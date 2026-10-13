@@ -7,12 +7,16 @@ Run the full suite with `npm run check`. Tests use fake credentials and mocked p
 | Configuration | Typed registries and inferred data; strict schemas, revisions, protection requirements, frozen snapshots | [Type fixtures](../tests/types/config.ts), [configuration tests](../tests/contracts/config.test.ts) |
 | Ingestion | JSON and URL-encoded parsing, malformed/oversized bodies, duplicate keys, cancellation, guards before schema, job limits, safe serialization, uncertain publication | [Ingress tests](../tests/contracts/ingress.test.ts) |
 | Runtime | Scoped secrets, selected-provider dependencies, capability checks before publication | [Runtime tests](../tests/contracts/runtime.test.ts) |
+| Readiness | Opt-in API-key authentication, safe per-form diagnostics, no provider requests or Queue writes | [Readiness tests](../tests/contracts/readiness.test.ts) |
 | Providers | Rendering, mentions/markup, headers, payload limits, upstream acceptance, native and Resend transports, cancellation and failure classification | [Provider tests](../tests/contracts/providers.test.ts) |
+| Webhooks | Independent HMAC verification, optional authentication, stable retry payloads, HTTP classification, cancellation, receiver deduplication | [Webhook tests](../tests/contracts/webhook.test.ts) |
 | Policies | API keys, Turnstile hostname/action, honeypot, rate limits, log redaction | [Policy tests](../tests/contracts/policies.test.ts) |
 | Dispatch | Job/version validation, revision checks before secrets, bounded retries, sanitized failure publication before acknowledgment, failure-sink retries | [Dispatch tests](../tests/contracts/dispatch.test.ts) |
 | Workers runtime | CORS, methods, authentication, rejection without Queue writes, confirmed batch publication, independent message settlement | [Worker tests](../tests/integration/worker.test.ts) |
 | Dead-letter Queue | Retry exhaustion preserves the original delivery envelope | [Platform test](../tests/platform/dlq.test.ts) |
 | CLI | API starter profiles, setup and credential preservation, overwrite protection, secret redaction, diagnostics, fixture limits, rendering failures, escaped/sandboxed previews | [CLI tests](../tests/tooling/cli.test.ts) |
+| Guided setup | Provider combinations, compiled starters, static configuration preservation, dry runs, cancellation, unique signing keys, masked input | [Setup tests](../tests/tooling/setup.test.ts), [prompt tests](../tests/tooling/prompts.test.ts) |
+| Test submissions | Preview by default, authenticated readiness, matching deployed routing, one explicit live submission, no uncertain-acceptance retries | [Remote tooling tests](../tests/tooling/remote.test.ts) |
 | Browser client | URL-encoded submission, concurrent-send prevention, status feedback, preserved fields, fresh tokens and manual retries | [Browser tests](../tests/tooling/browser.test.ts) |
 
 Browser tests use DOM boundary fixtures and mocked fetch; they do not run a live Turnstile challenge.

@@ -1,27 +1,27 @@
 # cf-relay
 
-A Cloudflare Worker that validates form submissions and API events, then queues notifications for delivery to Slack, Discord, and email. Forms, guards, destinations, and message transforms are configured in TypeScript. Deploy the API and connect your own frontend; client examples live in [examples/](examples/README.md).
+A Cloudflare Worker that validates form submissions and API events, then queues notifications for delivery to Slack, Discord, email, and webhooks. Forms, guards, destinations, and message transforms are configured in TypeScript.
 
 ## Supported features
 
 | Feature | Support |
 | --- | --- |
-| Destinations | Slack incoming webhooks, Discord webhooks, email |
+| Destinations | Slack incoming webhooks, Discord webhooks, email, HTTPS webhooks |
 | Email transports | Cloudflare Email Service (default), [Resend](docs/development.md#swap-email-transports) |
 | Requests | JSON and flat URL-encoded data, up to 32 KiB |
 | Routing | One or multiple destinations per form |
 | Validation | Strict schemas and message transforms |
 | Protection | API keys, rate limiting, Turnstile, honeypot |
 | Delivery | Cloudflare Queues, bounded retries, failure Queue |
-| Tooling | Local setup, starter generation, configuration diagnostics, notification preview |
+| Tooling | Guided setup, starter generation, readiness checks, preview, test submissions |
 
 ## Quick start
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Fjordanliu%2Fcf-relay)
 
-Deploy the default Slack API through Cloudflare's dashboard. Supply a Slack webhook and API key; Cloudflare provisions the Queues. See [dashboard deployment](docs/operations.md#deploy-from-the-dashboard).
+Deploy through Cloudflare's dashboard with an API key; Cloudflare provisions the Queues. Configure destinations afterward. See [dashboard deployment](docs/operations.md#deploy-from-the-dashboard).
 
-For local setup, use Node.js 22.12+ and npm. Deployment requires a Cloudflare account with Workers and Queues, and a Slack incoming webhook for this example.
+Local setup requires Node.js 22.12+ and npm. Deployment requires a Cloudflare account with Workers and Queues.
 
 ### 1. Install and prepare
 
@@ -32,13 +32,19 @@ npm ci
 npm run setup
 ```
 
-The included API accepts `events` with API-key authentication and sends to one Slack destination. Setup validates configuration and a fixture, generates bindings, and creates ignored `.dev.vars` with a random `SERVER_API_KEY`. Existing credentials are preserved.
+The included `events` API uses API-key authentication. Setup lets you choose destinations and enter missing credentials, validates a fixture, generates bindings, and prepares ignored `.dev.vars`. Existing values are preserved; API and webhook signing keys are generated locally.
 
 ### 2. Configure
 
-Add `SLACK_WEBHOOK_V1` to `.dev.vars`. Edit [relay.config.ts](apps/worker/relay.config.ts) for schemas and messages, and [wrangler.jsonc](wrangler.jsonc) for Worker and Queue names. Run setup again after changes.
+Choose any combination of destinations. For example:
 
-For Discord, email, or browser submissions, generate [another API configuration](docs/development.md#generate-a-starter). HTML forms are optional client examples, hosted with your frontend.
+```sh
+npm run setup -- --providers slack,discord
+```
+
+Edit [relay.config.ts](apps/worker/relay.config.ts) for schemas and messages, and [wrangler.jsonc](wrangler.jsonc) for Worker and Queue names. Use `--dry-run` to inspect setup changes. An active form needs at least one destination; missing credentials for a selected destination block submissions.
+
+See [setup options](docs/development.md#prepare-local-setup) for email and webhooks, or generate a [browser configuration](docs/development.md#generate-a-starter).
 
 ### 3. Deploy
 
@@ -51,6 +57,17 @@ npm run deploy
 ```
 
 `secrets` uploads `.dev.vars` to the configured Worker. `check` runs local verification and a deployment dry run. `deploy` publishes the API.
+
+## Verify setup
+
+Set `RELAY_ENDPOINT` to the deployed Worker URL and `RELAY_API_KEY` to its `SERVER_API_KEY`:
+
+```sh
+npm run doctor -- --endpoint "$RELAY_ENDPOINT" --form events
+npm run send -- --endpoint "$RELAY_ENDPOINT" --form events --live
+```
+
+Doctor checks configuration presence. The test command sends one submission and reports Queue acceptance; verify receipt at the destination. Omit `--live` to preview without sending.
 
 ## Send a request
 
@@ -89,6 +106,8 @@ For browser submissions, use a `browser` API configuration and your own form. Th
 
 - [Operations](docs/operations.md): deployment, local development, troubleshooting, retries, and failures.
 - [Development](docs/development.md): starter options, tooling, providers, transports, and limits.
+- [Webhooks](docs/webhooks.md): payloads, authentication, retries, and receiver example.
+- [Examples](examples/README.md): browser and server clients, configurations, and providers.
 - [Test coverage](docs/acceptance.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT license](LICENSE)
 
 No application database is required. Queues retain rendered content, which may include personal data. File uploads are unsupported. Destination or credential changes require a new revision; see [revision changes and draining](docs/operations.md#revision-changes-and-draining).

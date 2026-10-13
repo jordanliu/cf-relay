@@ -25,6 +25,7 @@ export interface DeliveryInput<T> {
   deliveryId: string;
   submissionId: string;
   formId: string;
+  createdAt: string;
   message: RelayMessage;
   config: T;
 }

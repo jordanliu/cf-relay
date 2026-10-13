@@ -91,6 +91,7 @@ describe("Queue reliability", () => {
       "deliveryId",
       "submissionId",
       "formId",
+      "createdAt",
       "message",
       "config",
     ]);

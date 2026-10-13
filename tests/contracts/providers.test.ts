@@ -16,6 +16,7 @@ const base = {
   deliveryId: "sub_test:target",
   submissionId: "sub_test",
   formId: "contact",
+  createdAt: "2026-10-10T00:00:00.000Z",
   message: {
     title: "Hello <script> @everyone",
     text: "<@123> & @here **bold**",

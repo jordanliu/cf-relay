@@ -2,16 +2,41 @@
 
 ## Deploy from the dashboard
 
-Use the [Deploy to Cloudflare button](../README.md#quick-start) for the default Slack API:
+Use the [Deploy to Cloudflare button](../README.md#quick-start):
 
 1. Sign in to Cloudflare and connect GitHub. Cloudflare creates a copy of this public repository in your account.
 2. Choose the Worker and Queue names.
-3. Supply `SLACK_WEBHOOK_V1` and a randomly generated `SERVER_API_KEY`.
+3. Supply a randomly generated `SERVER_API_KEY`.
 4. Accept the build and deploy commands to provision both Queues and deploy the API.
+5. [Configure a provider](#configure-a-provider) before sending submissions.
 
 The button uses the whole repository, including workspace dependencies. Keep the build root at the repository root. The default commands are `npm run build` and `npm run deploy`; dashboard deployment does not need local setup or secret upload.
 
-Workers Builds deploys subsequent changes from the configured production branch. See [Cloudflare's deploy button guide](https://developers.cloudflare.com/workers/platform/deploy-buttons/). Connect a server client using the deployed URL and API key, then verify with a controlled submission.
+Cloudflare requires every uncommented secret in `.dev.vars.example`, with no optional-field setting. Provider entries are commented out so they do not block deployment. See [Cloudflare's open issue](https://github.com/cloudflare/developer-platform/issues/28). The API returns `503` without publishing jobs until its configured destination is ready; `/healthz` remains available.
+
+Workers Builds deploys subsequent changes from the configured production branch. See [Cloudflare's deploy button guide](https://developers.cloudflare.com/workers/platform/deploy-buttons/). After provider setup, connect a server client using the deployed URL and API key, then verify with a controlled submission.
+
+## Configure a provider
+
+Choose any combination of providers. Adding a secret alone does not change routing.
+
+| Provider | Configuration | Credentials and bindings |
+| --- | --- | --- |
+| Slack | `--providers slack` | `SLACK_WEBHOOK_V1` |
+| Discord | `--providers discord` | `DISCORD_WEBHOOK_V1` |
+| Cloudflare Email Service | `--providers email`, sender and recipients | `EMAIL` binding, verified sending domain |
+| Resend | Email with `--email-transport resend` | `RESEND_API_KEY`, verified sending domain |
+| Webhook | `--providers webhook`, optional `--webhook-auth` | HTTPS URL, selected signing/bearer credentials |
+
+For dashboard deployments, work in the repository Cloudflare copied to your account. Supply the existing API key in `.dev.vars` or `RELAY_API_KEY` before setup:
+
+```sh
+npm ci
+npm run setup -- --providers slack,discord
+npm run check
+```
+
+Setup preserves the Worker and Queue names chosen during deployment. Configure production secrets in the dashboard or with `npm run secrets`, then commit and push configuration changes to the production branch. `.dev.vars` stays ignored. See [setup options](development.md#prepare-local-setup) and [webhooks](webhooks.md).
 
 ## Configure and deploy
 
@@ -34,7 +59,7 @@ npx wrangler queues create cf-relay-deliveries
 npx wrangler queues create cf-relay-failures
 ```
 
-Run `npm run setup` and fill in `.dev.vars`. The default API needs `SLACK_WEBHOOK_V1` and `SERVER_API_KEY`; other configurations use the names reported by doctor. Declare secret types in `WorkerEnv`; platform binding types are generated.
+Run `npm run setup` to choose destinations and enter credentials. Noninteractive setup prepares `.dev.vars` entries for manual completion; doctor lists the required names. Declare secret types in `WorkerEnv`; platform binding types are generated.
 
 Upload and deploy:
 
@@ -69,7 +94,7 @@ Run setup to prepare bindings, validate the fixture, and create `.dev.vars` with
 npm run setup
 ```
 
-Fill in `.dev.vars`, then run:
+Complete any missing credentials, then run:
 
 ```sh
 npm run doctor -- --local
@@ -87,10 +112,11 @@ The Worker runs at `http://localhost:8787`. Use the [README request](../README.m
 | `403` | Exact page origin, Turnstile hostname/action, fresh token, empty honeypot |
 | `422` | Fixture matches the schema and [message limits](development.md#limits-and-rendering) |
 | `429` | Wait before retrying; review rate-limit settings |
-| `503` | Response error code, required secrets/bindings, Queue availability |
+| `503` | Run authenticated remote doctor for the selected form; check required secrets/bindings and Queues |
+| Remote doctor reports configuration mismatch | Deploy the intended destination IDs, providers, and revisions before testing |
 | Accepted request but no notification | Worker logs, delivery backlog, failure Queue |
 
-Doctor cannot verify live credentials, DNS, or provider acceptance. `/healthz` only confirms the HTTP handler responds. Queue publication can remain uncertain after `503`; a retry may duplicate notifications.
+Doctor cannot verify credential validity, DNS, or provider acceptance. `/healthz` only confirms the HTTP handler responds; authenticated `/v1/readiness` checks configured capabilities per form. Queue publication can remain uncertain after `503`; a retry may duplicate notifications.
 
 ## Revision changes and draining
 

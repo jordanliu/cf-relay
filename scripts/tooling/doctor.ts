@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { parseEnv } from "node:util";
 import { secretNames } from "@cf-relay/core";
-import { dependencyBindings, inspectSource, type Project } from "./project";
+import { ToolError } from "./errors";
+import {
+  dependencyBindings,
+  inspectSource,
+  type Project,
+  readinessSecrets,
+} from "./project";
 
 type Diagnostic = {
   severity: "error" | "warning";
@@ -10,9 +16,15 @@ type Diagnostic = {
   formId?: string;
 };
 
-export async function diagnose(project: Project, local = false) {
+export async function diagnose(
+  project: Project,
+  local = false,
+  selectedForm?: string,
+) {
   const diagnostics: Diagnostic[] = [];
   const { config, wrangler, source, entrySource } = project;
+  if (selectedForm && !Object.hasOwn(config.forms, selectedForm))
+    throw new ToolError("Choose a configured form with --form formId.");
   const add = (
     severity: Diagnostic["severity"],
     code: string,
@@ -86,153 +98,158 @@ export async function diagnose(project: Project, local = false) {
       );
     }
   }
-  const forms = Object.entries(config.forms).map(([id, form]) => {
-    const dependencies = dependencyBindings(
-      entrySource,
-      new Set(
-        form.destinations.map(
-          (destination) => config.destinations[destination]?.provider ?? "",
+  const forms = Object.entries(config.forms)
+    .filter(([id]) => !selectedForm || selectedForm === id)
+    .map(([id, form]) => {
+      const dependencies = dependencyBindings(
+        entrySource,
+        new Set(
+          form.destinations.map(
+            (destination) => config.destinations[destination]?.provider ?? "",
+          ),
         ),
-      ),
-    );
-    const requiredBindings = [
-      ...new Set([
-        ...(form.guards?.flatMap((guard) => [...(guard.bindingNames ?? [])]) ??
-          []),
-        ...dependencies.filter(
-          (name) => name === "EMAIL" || bindings.has(name),
-        ),
-      ]),
-    ].sort();
-    const requiredSecrets = [
-      ...new Set([
-        ...(form.guards?.flatMap((guard) => [...(guard.secretNames ?? [])]) ??
-          []),
-        ...form.destinations.flatMap((destination) =>
-          secretNames(config.destinations[destination]),
-        ),
-        ...dependencies.filter(
-          (name) => name !== "EMAIL" && !bindings.has(name),
-        ),
-      ]),
-    ].sort();
-    for (const name of requiredBindings) {
-      if (name !== "EMAIL" && !bindings.has(name))
-        add(
-          "error",
-          "GUARD_BINDING_MISSING",
-          `Declare the ${name} binding in wrangler.jsonc.`,
-          id,
-        );
-    }
-    if (
-      dependencies.includes("EMAIL") &&
-      !wrangler.send_email?.some((binding) => binding.name === "EMAIL")
-    )
-      add(
-        "error",
-        "EMAIL_BINDING_MISSING",
-        "Declare the EMAIL send_email binding for the native Cloudflare transport.",
-        id,
       );
-    for (const name of requiredSecrets) {
-      if (local && !(localValues[name] || wrangler.vars?.[name]))
-        add(
-          "error",
-          "LOCAL_SECRET_MISSING",
-          `Supply local ${name} in .dev.vars.`,
-          id,
-        );
-      if (Object.hasOwn(wrangler.vars ?? {}, name))
-        add(
-          "warning",
-          "SECRET_IN_VARS",
-          `Move ${name} from Wrangler vars to a secret binding.`,
-          id,
-        );
-      if (
-        !new RegExp(`\\b${name}\\s*[?]?:\\s*string\\b`).test(entrySource) &&
-        !Object.hasOwn(wrangler.vars ?? {}, name)
-      )
-        add(
-          "warning",
-          "SECRET_TYPE_MISSING",
-          `Declare ${name}: string in the Worker environment type.`,
-          id,
-        );
-    }
-    if (
-      form.guards?.some((guard) => guard.type === "turnstile") &&
-      !form.allowedOrigins?.length
-    )
-      add(
-        "error",
-        "BROWSER_ORIGIN_MISSING",
-        "Set allowedOrigins for the browser form.",
-        id,
-      );
-    if (
-      form.allowedOrigins?.some((origin) =>
-        /(^|\.)example\.(com|org|net)$/.test(new URL(origin).hostname),
-      )
-    )
-      add(
-        "warning",
-        "PLACEHOLDER_ORIGIN",
-        "Replace the example origin with the client page's exact origin.",
-        id,
-      );
-    for (const destinationId of form.destinations) {
-      const destination = config.destinations[destinationId];
-      const emailBinding = wrangler.send_email?.find(
-        (binding) => binding.name === "EMAIL",
-      );
-      if (
-        destination?.provider === "email" &&
-        dependencies.includes("EMAIL") &&
-        emailBinding
-      ) {
-        const senders = emailBinding.allowed_sender_addresses;
-        const recipients = emailBinding.allowed_destination_addresses;
-        if (
-          (senders && !senders.includes(String(destination.from))) ||
-          (recipients &&
-            Array.isArray(destination.to) &&
-            destination.to.some(
-              (address) => !recipients.includes(String(address)),
-            ))
-        )
+      const requiredBindings = [
+        ...new Set([
+          ...(form.guards?.flatMap((guard) => [
+            ...(guard.bindingNames ?? []),
+          ]) ?? []),
+          ...dependencies.filter(
+            (name) => name === "EMAIL" || bindings.has(name),
+          ),
+        ]),
+      ].sort();
+      const requiredSecrets = [
+        ...new Set([
+          ...readinessSecrets(entrySource),
+          ...(form.guards?.flatMap((guard) => [...(guard.secretNames ?? [])]) ??
+            []),
+          ...form.destinations.flatMap((destination) =>
+            secretNames(config.destinations[destination]),
+          ),
+          ...dependencies.filter(
+            (name) => name !== "EMAIL" && !bindings.has(name),
+          ),
+        ]),
+      ].sort();
+      for (const name of requiredBindings) {
+        if (name !== "EMAIL" && !bindings.has(name))
           add(
             "error",
-            "EMAIL_ALLOWLIST_MISMATCH",
-            `The EMAIL sender or recipient allowlist excludes an address in destination ${destinationId}. Update the destination or Wrangler allowlists.`,
+            "GUARD_BINDING_MISSING",
+            `Declare the ${name} binding in wrangler.jsonc.`,
             id,
           );
       }
       if (
-        destination?.provider === "email" &&
-        [
-          destination.from,
-          ...(Array.isArray(destination.to) ? destination.to : []),
-        ].some(
-          (value) =>
-            typeof value === "string" && /@example\.(com|org|net)$/.test(value),
+        dependencies.includes("EMAIL") &&
+        !wrangler.send_email?.some((binding) => binding.name === "EMAIL")
+      )
+        add(
+          "error",
+          "EMAIL_BINDING_MISSING",
+          "Declare the EMAIL send_email binding for the native Cloudflare transport.",
+          id,
+        );
+      for (const name of requiredSecrets) {
+        if (local && !(localValues[name] || wrangler.vars?.[name]))
+          add(
+            "error",
+            "LOCAL_SECRET_MISSING",
+            `Supply local ${name} in .dev.vars.`,
+            id,
+          );
+        if (Object.hasOwn(wrangler.vars ?? {}, name))
+          add(
+            "warning",
+            "SECRET_IN_VARS",
+            `Move ${name} from Wrangler vars to a secret binding.`,
+            id,
+          );
+        if (
+          !new RegExp(`\\b${name}\\s*[?]?:\\s*string\\b`).test(entrySource) &&
+          !Object.hasOwn(wrangler.vars ?? {}, name)
+        )
+          add(
+            "warning",
+            "SECRET_TYPE_MISSING",
+            `Declare ${name}: string in the Worker environment type.`,
+            id,
+          );
+      }
+      if (
+        form.guards?.some((guard) => guard.type === "turnstile") &&
+        !form.allowedOrigins?.length
+      )
+        add(
+          "error",
+          "BROWSER_ORIGIN_MISSING",
+          "Set allowedOrigins for the browser form.",
+          id,
+        );
+      if (
+        form.allowedOrigins?.some((origin) =>
+          /(^|\.)example\.(com|org|net)$/.test(new URL(origin).hostname),
         )
       )
         add(
           "warning",
-          "PLACEHOLDER_EMAIL",
-          `Replace the sample sender and recipients for destination ${destinationId}.`,
+          "PLACEHOLDER_ORIGIN",
+          "Replace the example origin with the client page's exact origin.",
           id,
         );
-    }
-    return {
-      id,
-      destinations: [...form.destinations],
-      requiredSecrets,
-      requiredBindings,
-    };
-  });
+      for (const destinationId of form.destinations) {
+        const destination = config.destinations[destinationId];
+        const emailBinding = wrangler.send_email?.find(
+          (binding) => binding.name === "EMAIL",
+        );
+        if (
+          destination?.provider === "email" &&
+          dependencies.includes("EMAIL") &&
+          emailBinding
+        ) {
+          const senders = emailBinding.allowed_sender_addresses;
+          const recipients = emailBinding.allowed_destination_addresses;
+          if (
+            (senders && !senders.includes(String(destination.from))) ||
+            (recipients &&
+              Array.isArray(destination.to) &&
+              destination.to.some(
+                (address) => !recipients.includes(String(address)),
+              ))
+          )
+            add(
+              "error",
+              "EMAIL_ALLOWLIST_MISMATCH",
+              `The EMAIL sender or recipient allowlist excludes an address in destination ${destinationId}. Update the destination or Wrangler allowlists.`,
+              id,
+            );
+        }
+        if (
+          destination?.provider === "email" &&
+          [
+            destination.from,
+            ...(Array.isArray(destination.to) ? destination.to : []),
+          ].some(
+            (value) =>
+              typeof value === "string" &&
+              /@example\.(com|org|net)$/.test(value),
+          )
+        )
+          add(
+            "warning",
+            "PLACEHOLDER_EMAIL",
+            `Replace the sample sender and recipients for destination ${destinationId}.`,
+            id,
+          );
+      }
+      return {
+        id,
+        destinations: [...form.destinations],
+        requiredSecrets,
+        requiredBindings,
+      };
+    });
   const hostnames = new Set(
     Object.values(config.forms).flatMap(
       (form) =>

@@ -30,14 +30,21 @@ export function classifyHttp(response: Response): DeliveryOutcome | undefined {
 export async function boundedResponseText(
   response: Response,
   maxBytes = 16384,
+  signal?: AbortSignal,
 ): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
+  const cancel = () => {
+    void reader.cancel().catch(() => {});
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
     while (true) {
+      if (signal?.aborted) throw new DeadlineError();
       const { value, done } = await reader.read();
+      if (signal?.aborted) throw new DeadlineError();
       if (done) break;
       size += value.byteLength;
       if (size > maxBytes) throw new Error("Upstream response exceeds limit");
@@ -49,8 +56,12 @@ export async function boundedResponseText(
       bytes.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    // Preserve the BOM so consumers that verify signatures retain the exact bytes.
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      bytes,
+    );
   } finally {
+    signal?.removeEventListener("abort", cancel);
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }

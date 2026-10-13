@@ -122,6 +122,7 @@ export async function dispatch(
                 deliveryId: job.deliveryId,
                 submissionId: job.submissionId,
                 formId: job.formId,
+                createdAt: job.createdAt,
                 message: job.message,
                 config: resolved,
               },

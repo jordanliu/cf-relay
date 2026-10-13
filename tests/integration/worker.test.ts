@@ -54,6 +54,22 @@ describe("real Workers runtime and Queue settlement", () => {
   it("health is responsive without inspecting provider health", async () => {
     expect(await (await request("/healthz")).json()).toEqual({ status: "ok" });
   });
+  it("authenticates readiness and reports configuration gaps without Queue writes or provider requests", async () => {
+    const deliveries = vi.spyOn(env.DELIVERIES, "sendBatch");
+    expect((await request("/v1/readiness")).status).toBe(401);
+    const init = { headers: { authorization: "Bearer fake-test-only" } };
+    const ready = await request("/v1/readiness", init);
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toMatchObject({ ready: true });
+    const incomplete = await request("/v1/readiness", init, {
+      ...env,
+      ENGINEERING_SLACK_WEBHOOK_V1: "",
+    });
+    expect(incomplete.status).toBe(503);
+    expect(await incomplete.text()).toContain("ENGINEERING_SLACK_WEBHOOK_V1");
+    expect(deliveries).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("confirms one real Queue sendBatch before a 202 response", async () => {
     const spy = vi.spyOn(env.DELIVERIES, "sendBatch");
     const response = await request("/v1/forms/events", {
@@ -79,7 +95,8 @@ describe("real Workers runtime and Queue settlement", () => {
   });
   it("accepts Slack-only forms without an unrelated email capability", async () => {
     const spy = vi.spyOn(env.DELIVERIES, "sendBatch");
-    const { EMAIL: _email, ...bindings } = env;
+    const bindings = { ...env };
+    Reflect.deleteProperty(bindings, "EMAIL");
     const response = await request(
       "/v1/forms/events",
       {
@@ -90,14 +107,15 @@ describe("real Workers runtime and Queue settlement", () => {
         },
         body: JSON.stringify({ event: "test", details: "offline" }),
       },
-      bindings as WorkerEnv,
+      bindings,
     );
     expect(response.status).toBe(202);
     expect(spy).toHaveBeenCalledOnce();
   });
   it("rejects missing failure producer before publication", async () => {
     const spy = vi.spyOn(env.DELIVERIES, "sendBatch");
-    const { FAILURES: _failure, ...bindings } = env;
+    const bindings = { ...env };
+    Reflect.deleteProperty(bindings, "FAILURES");
     const response = await request(
       "/v1/forms/events",
       {
@@ -108,7 +126,7 @@ describe("real Workers runtime and Queue settlement", () => {
         },
         body: JSON.stringify({ event: "test", details: "offline" }),
       },
-      bindings as WorkerEnv,
+      bindings,
     );
     expect(response.status).toBe(503);
     expect(spy).not.toHaveBeenCalled();
@@ -161,6 +179,15 @@ describe("real Workers runtime and Queue settlement", () => {
           "/v1/forms/events",
           { method: "POST", headers, body: "{}" },
           { ...env, SERVER_API_KEY: "" },
+        )
+      ).status,
+    ).toBe(503);
+    expect(
+      (
+        await request(
+          "/v1/forms/events",
+          { method: "POST", headers, body: "{}" },
+          { ...env, ENGINEERING_SLACK_WEBHOOK_V1: "" },
         )
       ).status,
     ).toBe(503);

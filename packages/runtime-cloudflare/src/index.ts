@@ -3,12 +3,13 @@ import {
   type DestinationFor,
   type DestinationRegistry,
   defineRelay,
+  type Guard,
   ingest,
   type ProviderDependencies,
   type RelayConfig,
   RelayError,
-  secretNames,
   unavailable,
+  withDeadline,
 } from "@cf-relay/core";
 import { Hono } from "hono";
 import {
@@ -21,12 +22,14 @@ import { cloudflareFailureSink } from "./failure-sink";
 import { parseBody } from "./http";
 import { cloudflareRateLimit } from "./limits";
 import { cloudflarePublisher, consumeQueue } from "./queue";
+import { checkFormReadiness, type ReadinessReport } from "./readiness";
 
 export * from "./capabilities";
 export * from "./failure-sink";
 export * from "./http";
 export * from "./limits";
 export * from "./queue";
+export * from "./readiness";
 
 export type ProviderDependencyFactories<
   E extends object,
@@ -54,6 +57,7 @@ export function createCloudflareRelay<
 >(
   declaredConfig: RelayConfig<P, D>,
   options: {
+    readinessGuard?: (Guard & { readonly type: "api-key" }) | undefined;
     providerDependencies: ProviderDependencyFactories<E, P> &
       Record<string, (env: E) => object>;
   },
@@ -70,6 +74,75 @@ export function createCloudflareRelay<
   const app = new Hono<{ Bindings: E }>();
   const logger = createSafeLogger();
   app.get("/healthz", (c) => c.json({ status: "ok" }));
+  if (options.readinessGuard) {
+    const guard = options.readinessGuard;
+    if (
+      guard.type !== "api-key" ||
+      guard.phase !== "auth" ||
+      guard.fields.length
+    )
+      throw new Error("Readiness requires an API-key guard");
+    const check = guard.check.bind(guard);
+    app.get("/v1/readiness", async (c) => {
+      c.header("cache-control", "no-store");
+      c.header("x-content-type-options", "nosniff");
+      try {
+        const result = await withDeadline(
+          (signal) =>
+            check(
+              {
+                formId: "readiness",
+                security: {},
+                headers: { authorization: c.req.header("authorization") ?? "" },
+              },
+              {
+                http: runtimeHttp,
+                secretReader: cloudflareSecrets(c.env),
+                signal,
+                rateLimit: (name, key) => cloudflareRateLimit(c.env, name, key),
+              },
+            ),
+          5000,
+          c.req.raw.signal,
+        );
+        if (!result.allowed)
+          return c.json(
+            {
+              error: {
+                code:
+                  result.status === 401
+                    ? "UNAUTHORIZED"
+                    : "SERVICE_UNAVAILABLE",
+                message: "Readiness check was not authorized.",
+              },
+            },
+            result.status,
+          );
+        const forms = [];
+        for (const id of Object.keys(config.forms))
+          forms.push(
+            await checkFormReadiness(config, id, c.env, (type) =>
+              dependenciesFor(c.env, type),
+            ),
+          );
+        const report: ReadinessReport = {
+          ready: forms.length > 0 && forms.every((form) => form.ready),
+          forms,
+        };
+        return c.json(report, report.ready ? 200 : 503);
+      } catch {
+        return c.json(
+          {
+            error: {
+              code: "SERVICE_UNAVAILABLE",
+              message: "Readiness check unavailable.",
+            },
+          },
+          503,
+        );
+      }
+    });
+  }
   app.all("/v1/forms/:formId", async (c) => {
     const formId = c.req.param("formId");
     const form = Object.hasOwn(config.forms, formId)
@@ -128,47 +201,14 @@ export function createCloudflareRelay<
         throw new RelayError(405, "METHOD_NOT_ALLOWED", "Use POST.");
       }
       const queue = binding(c.env, "DELIVERIES");
-      if (
-        !queue ||
-        typeof queue !== "object" ||
-        !("sendBatch" in queue) ||
-        typeof queue.sendBatch !== "function"
-      )
-        throw unavailable();
-      const failures = binding(c.env, "FAILURES");
-      if (
-        !failures ||
-        typeof failures !== "object" ||
-        !("send" in failures) ||
-        typeof failures.send !== "function"
-      )
-        throw unavailable();
-      const secrets = cloudflareSecrets(c.env);
-      const required = new Set<string>(
-        form.guards?.flatMap((guard) => [...(guard.secretNames ?? [])]),
+      const readiness = await checkFormReadiness(
+        config,
+        formId,
+        c.env,
+        (type) => dependenciesFor(c.env, type),
       );
-      for (const id of form.destinations)
-        for (const name of secretNames(config.destinations[id]))
-          required.add(name);
-      try {
-        for (const name of required) await secrets.read(name);
-        for (const name of form.guards?.flatMap((guard) => [
-          ...(guard.bindingNames ?? []),
-        ]) ?? [])
-          if (!binding(c.env, name))
-            throw new Error("Required guard binding missing");
-        for (const type of new Set(
-          form.destinations.map(
-            (id) => (config.destinations as DestinationRegistry)[id]?.provider,
-          ),
-        ))
-          if (type)
-            config.providers
-              .find((provider) => provider.type === type)
-              ?.create(dependenciesFor(c.env, type));
-      } catch {
-        throw unavailable();
-      }
+      if (!readiness.ready) throw unavailable();
+      const secrets = cloudflareSecrets(c.env);
       const body = await parseBody(c.req.raw);
       const clientIp = c.req.header("cf-connecting-ip");
       const result = await ingest(

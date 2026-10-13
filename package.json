@@ -18,6 +18,7 @@
     "init": "node scripts/relay.mjs init",
     "doctor": "node scripts/relay.mjs doctor",
     "preview": "node scripts/relay.mjs preview",
+    "send": "node scripts/relay.mjs send",
     "format": "biome format --write .",
     "lint": "biome check . && node scripts/check-boundaries.mjs",
     "typecheck": "tsc --noEmit && tsc -p packages/core/tsconfig.json && tsc -p tests/types/tsconfig.json",
@@ -37,10 +38,10 @@
   "cloudflare": {
     "bindings": {
       "SLACK_WEBHOOK_V1": {
-        "description": "Slack incoming webhook URL for notification delivery. Create an incoming webhook for the channel that should receive events."
+        "description": "Slack incoming webhook URL. Add this secret after deployment if using the included Slack configuration."
       },
       "SERVER_API_KEY": {
-        "description": "Generate a random API key of at least 32 characters using a password manager. Trusted server clients send this key using the Authorization: Bearer header."
+        "description": "Required. Generate a random API key of at least 32 characters using a password manager. Trusted server clients send Authorization: Bearer with this key. Configure destinations after deployment using the [provider setup guide](https://github.com/jordanliu/cf-relay/blob/main/docs/operations.md#configure-a-provider)."
       },
       "DELIVERIES": {
         "description": "Queue for asynchronous notification delivery. Cloudflare provisions this during deployment."

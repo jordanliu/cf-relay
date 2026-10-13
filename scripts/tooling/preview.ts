@@ -13,6 +13,7 @@ import {
   renderEmail,
 } from "@cf-relay/provider-email";
 import { renderSlack } from "@cf-relay/provider-slack";
+import { renderWebhook } from "@cf-relay/provider-webhook";
 import { ToolError } from "./errors";
 import type { Project } from "./project";
 
@@ -23,6 +24,36 @@ type Preview = {
   payload: unknown;
 };
 type PreviewError = { destinationId: string; code: string; message: string };
+
+export async function readFixture(
+  input: string,
+): Promise<Record<string, unknown>> {
+  let body: unknown;
+  try {
+    const file = await open(input, "r");
+    try {
+      const bytes = Buffer.alloc(LIMITS.rawBodyBytes + 1);
+      const { bytesRead } = await file.read(bytes);
+      if (bytesRead > LIMITS.rawBodyBytes)
+        throw new ToolError("Fixture exceeds the 32 KiB request body limit.");
+      body = JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(
+          bytes.subarray(0, bytesRead),
+        ),
+      );
+    } finally {
+      await file.close();
+    }
+  } catch (error) {
+    if (error instanceof ToolError) throw error;
+    throw new ToolError(
+      "Cannot read a UTF-8 JSON fixture. Check --input and its JSON syntax.",
+    );
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    throw new ToolError("Fixture must be a JSON object of submission fields.");
+  return body as Record<string, unknown>;
+}
 
 export async function preview(
   project: Project,
@@ -48,30 +79,7 @@ export async function preview(
     if (!/^https?:\/\//.test(origin))
       throw new ToolError("--origin must use HTTP(S).");
   }
-  let body: unknown;
-  try {
-    const file = await open(input, "r");
-    try {
-      const bytes = Buffer.alloc(LIMITS.rawBodyBytes + 1);
-      const { bytesRead } = await file.read(bytes);
-      if (bytesRead > LIMITS.rawBodyBytes)
-        throw new ToolError("Fixture exceeds the 32 KiB request body limit.");
-      body = JSON.parse(
-        new TextDecoder("utf-8", { fatal: true }).decode(
-          bytes.subarray(0, bytesRead),
-        ),
-      );
-    } finally {
-      await file.close();
-    }
-  } catch (error) {
-    if (error instanceof ToolError) throw error;
-    throw new ToolError(
-      "Cannot read a UTF-8 JSON fixture. Check --input and its JSON syntax.",
-    );
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body))
-    throw new ToolError("Fixture must be a JSON object of submission fields.");
+  const body = await readFixture(input);
   const guardFields = new Set(
     form.guards?.flatMap((guard) => [...guard.fields]),
   );
@@ -128,12 +136,12 @@ export async function preview(
     const destination = project.config.destinations[id];
     if (!destination) throw new ToolError("Destination is not configured.");
     const { provider, revision } = destination;
-    if (!["slack", "discord", "email"].includes(provider)) {
+    if (!["slack", "discord", "email", "webhook"].includes(provider)) {
       errors.push({
         destinationId: id,
         code: "UNSUPPORTED_PREVIEW",
         message:
-          "Preview supports built-in Slack, Discord, and email renderers.",
+          "Preview supports built-in Slack, Discord, email, and webhook renderers.",
       });
       continue;
     }
@@ -143,13 +151,21 @@ export async function preview(
           ? renderSlack(message)
           : provider === "discord"
             ? renderDiscord(message)
-            : renderEmail(
-                message,
-                emailConfigSchema.parse({
-                  from: destination.from,
-                  to: destination.to,
-                }),
-              );
+            : provider === "webhook"
+              ? renderWebhook({
+                  deliveryId: `${submission.id}:${id}`,
+                  submissionId: submission.id,
+                  formId,
+                  createdAt: submission.createdAt,
+                  message,
+                })
+              : renderEmail(
+                  message,
+                  emailConfigSchema.parse({
+                    from: destination.from,
+                    to: destination.to,
+                  }),
+                );
       previews.push({ destinationId: id, provider, revision, payload });
     } catch {
       errors.push({

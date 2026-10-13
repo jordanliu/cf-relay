@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import { parseEnv, promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { main } from "../../scripts/tooling/cli";
 
@@ -28,6 +28,7 @@ async function cli(...args: string[]) {
         env: {
           ...process.env,
           WRANGLER_SEND_METRICS: "false",
+          RELAY_API_KEY: "",
           WRANGLER_LOG_PATH: join(root, ".scratch/wrangler-logs"),
         },
       },
@@ -73,9 +74,12 @@ describe("relay tooling commands", () => {
       await readFile(join(directory, "wrangler.jsonc"), "utf8"),
     );
     expect(wrangler.main).toBe("apps/worker/src/index.ts");
-    expect(await readFile(join(directory, ".dev.vars.example"), "utf8")).toBe(
-      "SLACK_WEBHOOK_V1=\nSERVER_API_KEY=\n",
+    const secretTemplate = await readFile(
+      join(directory, ".dev.vars.example"),
+      "utf8",
     );
+    expect(parseEnv(secretTemplate)).toEqual({ SERVER_API_KEY: "" });
+    expect(secretTemplate).toContain("# SLACK_WEBHOOK_V1=");
     await expect(
       readFile(join(directory, "apps/worker/wrangler.jsonc")),
     ).rejects.toMatchObject({ code: "ENOENT" });
@@ -152,6 +156,12 @@ describe("relay tooling commands", () => {
       );
       expect(Boolean(wrangler.ratelimits)).toBe(mode === "browser");
       expect(wrangler.assets).toBeUndefined();
+      expect(
+        parseEnv(await readFile(join(directory, ".dev.vars.example"), "utf8")),
+      ).toEqual({
+        SERVER_API_KEY: "",
+        ...(mode === "browser" ? { TURNSTILE_SECRET: "" } : {}),
+      });
       const rendered = await cli(
         "preview",
         "--config",
@@ -203,13 +213,16 @@ describe("relay tooling commands", () => {
       );
       const local = join(directory, ".dev.vars");
       const content = await readFile(local, "utf8");
-      if (mode === "server") {
-        const key = content.match(/^SERVER_API_KEY=(.+)$/m)?.[1];
+      {
+        const key = parseEnv(content).SERVER_API_KEY;
         expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
         expect(`${prepared.stdout}${prepared.stderr}`).not.toContain(key);
-      } else {
-        expect(content).toBe("RESEND_API_KEY=\nTURNSTILE_SECRET=\n");
       }
+      if (mode === "browser")
+        expect(parseEnv(content)).toMatchObject({
+          RESEND_API_KEY: "",
+          TURNSTILE_SECRET: "",
+        });
       if (process.platform !== "win32")
         expect((await stat(local)).mode & 0o777).toBe(0o600);
       const credentials = `${content}EXISTING_SECRET=private-test-only\n`;
@@ -277,7 +290,7 @@ describe("relay tooling commands", () => {
     });
   });
 
-  it("creates a server starter requiring only Slack and API-key credentials", async () => {
+  it("creates a server starter that defers provider setup until after deployment", async () => {
     const result = await cli(
       "init",
       "--mode",
@@ -293,9 +306,9 @@ describe("relay tooling commands", () => {
     );
     expect(wrangler.send_email).toBeUndefined();
     expect(wrangler.ratelimits).toBeUndefined();
-    expect(await readFile(join(directory, ".dev.vars.example"), "utf8")).toBe(
-      "SLACK_WEBHOOK_V1=\nSERVER_API_KEY=\n",
-    );
+    expect(
+      parseEnv(await readFile(join(directory, ".dev.vars.example"), "utf8")),
+    ).toEqual({ SERVER_API_KEY: "" });
     expect(await readFile(join(directory, "fixture.json"), "utf8")).toContain(
       '"event": "Example event"',
     );

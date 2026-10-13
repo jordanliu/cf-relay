@@ -14,6 +14,20 @@ import {
 import { createSafeLogger } from "@cf-relay/runtime-cloudflare";
 import { vi } from "vitest";
 import { z } from "zod";
+export function executionContext(): ExecutionContext {
+  return {
+    waitUntil: vi.fn(),
+    passThroughOnException: vi.fn(),
+    props: {},
+    abort: vi.fn(),
+    get exports(): never {
+      throw new Error("Unexpected context exports access");
+    },
+    get tracing(): never {
+      throw new Error("Unexpected context tracing access");
+    },
+  };
+}
 export function fixture(
   handler: ProviderExecutor<{ token: string }>["deliver"] = async () => ({
     status: "accepted",
