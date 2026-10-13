@@ -6,6 +6,7 @@ import { ToolError } from "./errors";
 import { projectPaths } from "./paths";
 import {
   destinationSource,
+  emailTransportCall,
   type ProviderOptions,
   providerSecrets,
   providerSettings,
@@ -128,7 +129,7 @@ const forms = defineForms(destinations, {
 export default defineRelay({ providers, destinations, forms });
 `;
   const emailImport = selected.includes("email")
-    ? `import { ${transport === "resend" ? "resend" : "cloudflare"}EmailTransport } from "@cf-relay/email-${transport}";\n`
+    ? `import { ${transport}EmailTransport } from "@cf-relay/email-${transport}";\n`
     : "";
   const entry = `${emailImport}import { secret } from "@cf-relay/core";
 import { apiKey } from "@cf-relay/policies";
@@ -140,7 +141,7 @@ ${secrets.map((secret) => `  ${secret}: string;`).join("\n")}
 };
 const relay = createCloudflareRelay(config, {
   readinessGuard: apiKey({ secret: secret("SERVER_API_KEY") }),
-  providerDependencies: {${selected.includes("email") ? `\n    email: (env: WorkerEnv) => ({ transport: ${transport === "resend" ? "resendEmailTransport(env.RESEND_API_KEY)" : "cloudflareEmailTransport(env.EMAIL)"} }),\n  ` : ""}},
+  providerDependencies: {${selected.includes("email") ? `\n    email: (env: WorkerEnv) => ({ transport: ${emailTransportCall(transport)} }),\n  ` : ""}},
 });
 export default {
   fetch: (request: Request, env: WorkerEnv, ctx: ExecutionContext) => relay.handleRequest(request, env, ctx),

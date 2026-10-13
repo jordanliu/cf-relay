@@ -7,7 +7,7 @@ A Cloudflare Worker that validates form submissions and API events, then queues 
 | Feature | Support |
 | --- | --- |
 | Destinations | Slack incoming webhooks, Discord webhooks, email, HTTPS webhooks |
-| Email transports | Cloudflare Email Service (default), [Resend](docs/development.md#swap-email-transports) |
+| Email transports | Cloudflare Email Service, Resend, SMTP |
 | Requests | JSON and flat URL-encoded data, up to 32 KiB |
 | Routing | One or multiple destinations per form |
 | Validation | Strict schemas and message transforms |

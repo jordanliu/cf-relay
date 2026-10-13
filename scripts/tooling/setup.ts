@@ -103,7 +103,7 @@ export async function setupProject(
     if (selected.includes("email") && !existing.has("email")) {
       if (!/email:\s*[\s\S]*?transport:/.test(project.entrySource))
         options["email-transport"] ??= await prompts.ask(
-          "Email transport (cloudflare/resend)",
+          "Email transport (cloudflare/resend/smtp)",
           "cloudflare",
         );
       options.from ??= await prompts.ask("Email sender");

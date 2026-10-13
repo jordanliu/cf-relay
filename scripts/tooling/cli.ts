@@ -15,7 +15,7 @@ const help = `Usage: npm run <command> -- [options]
 
 setup    Select destinations, validate configuration, generate bindings, and prepare credentials.
          --providers slack,discord,email,webhook --form formId --dry-run
-         --email-transport cloudflare|resend --from sender --to recipients
+         --email-transport cloudflare|resend|smtp --from sender --to recipients
          --webhook-auth signing|bearer|both|none (default: signing)
          --config path (default: apps/worker/relay.config.ts)
          --input path (default: fixture.json beside configuration)
@@ -25,7 +25,7 @@ setup    Select destinations, validate configuration, generate bindings, and pre
 init     Generate a single-form Worker with selected destinations.
          --mode browser|server --providers slack,discord,email,webhook
          --provider remains available for a single provider; do not combine both flags.
-         --email-transport cloudflare|resend --origin https://your-domain
+         --email-transport cloudflare|resend|smtp --origin https://your-domain
          --name worker-name --from sender --to recipient[,recipient]
          --output directory (default: apps/worker) --force --dry-run
          --webhook-auth signing|bearer|both|none
@@ -245,7 +245,7 @@ export async function main(
           options.origin ??= await prompts.ask("Exact browser origin");
         if (selected.includes("email")) {
           options["email-transport"] ??= await prompts.ask(
-            "Email transport (cloudflare/resend)",
+            "Email transport (cloudflare/resend/smtp)",
             "cloudflare",
           );
           options.from ??= await prompts.ask("Email sender");

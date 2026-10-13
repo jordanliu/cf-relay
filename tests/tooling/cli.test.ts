@@ -119,6 +119,8 @@ describe("relay tooling commands", () => {
     ["server", "email", "cloudflare"],
     ["browser", "email", "resend"],
     ["server", "email", "resend"],
+    ["browser", "email", "smtp"],
+    ["server", "email", "smtp"],
   ])(
     "creates and previews a valid %s/%s/%s profile",
     async (mode, provider, transport) => {

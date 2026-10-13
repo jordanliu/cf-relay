@@ -8,6 +8,8 @@ SERVER_API_KEY=
 # DISCORD_WEBHOOK_V1=
 # Email via Resend:
 # RESEND_API_KEY=
+# SMTP:
+# SMTP_URL=
 # Generic webhook:
 # WEBHOOK_URL_V1=
 # WEBHOOK_SIGNING_SECRET_V1=

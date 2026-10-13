@@ -10,6 +10,7 @@ Run the full suite with `npm run check`. Tests use fake credentials and mocked p
 | Readiness | Opt-in API-key authentication, safe per-form diagnostics, no provider requests or Queue writes | [Readiness tests](../tests/contracts/readiness.test.ts) |
 | Providers | Rendering, mentions/markup, headers, payload limits, upstream acceptance, native and Resend transports, cancellation and failure classification | [Provider tests](../tests/contracts/providers.test.ts) |
 | Webhooks | Independent HMAC verification, optional authentication, stable retry payloads, HTTP classification, cancellation, receiver deduplication | [Webhook tests](../tests/contracts/webhook.test.ts) |
+| SMTP | Implicit TLS, required STARTTLS, authentication, recipient checks, UTF-8 MIME, bounded replies, cancellation, safe failures | [SMTP tests](../tests/contracts/smtp.test.ts), [Workers checks](../tests/integration/smtp.test.ts) |
 | Policies | API keys, Turnstile hostname/action, honeypot, rate limits, log redaction | [Policy tests](../tests/contracts/policies.test.ts) |
 | Dispatch | Job/version validation, revision checks before secrets, bounded retries, sanitized failure publication before acknowledgment, failure-sink retries | [Dispatch tests](../tests/contracts/dispatch.test.ts) |
 | Workers runtime | CORS, methods, authentication, rejection without Queue writes, confirmed batch publication, independent message settlement | [Worker tests](../tests/integration/worker.test.ts) |

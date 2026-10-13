@@ -6,6 +6,7 @@ import { ToolError } from "./errors";
 import { type Project, readinessSecrets, readProject } from "./project";
 import {
   destinationSource,
+  emailTransportCall,
   type ProviderOptions,
   providerSecrets,
   providerSettings,
@@ -288,7 +289,9 @@ export async function configureProject(
     ((emailFactory.getText(entry.file).includes("cloudflareEmailTransport") &&
       settings.transport !== "cloudflare") ||
       (emailFactory.getText(entry.file).includes("resendEmailTransport") &&
-        settings.transport !== "resend"))
+        settings.transport !== "resend") ||
+      (emailFactory.getText(entry.file).includes("smtpEmailTransport") &&
+        settings.transport !== "smtp"))
   )
     throw new ToolError(
       "Email transport is shared by all forms. Change it manually with the destination revision and draining procedure.",
@@ -298,7 +301,9 @@ export async function configureProject(
       ? "cloudflare"
       : emailFactory.getText(entry.file).includes("resendEmailTransport")
         ? "resend"
-        : undefined
+        : emailFactory.getText(entry.file).includes("smtpEmailTransport")
+          ? "smtp"
+          : undefined
     : settings.transport;
   const wrangler = structuredClone(project.wrangler);
   const usedSecrets = new Set([
@@ -372,7 +377,7 @@ export async function configureProject(
           `${effectiveTransport}EmailTransport`,
         );
         entry.append(dependencyObject, [
-          `email: (env: WorkerEnv) => ({ transport: ${effectiveTransport}EmailTransport(env.${effectiveTransport === "cloudflare" ? "EMAIL" : "RESEND_API_KEY"}) })`,
+          `email: (env: WorkerEnv) => ({ transport: ${emailTransportCall(effectiveTransport)} })`,
         ]);
       }
       if (effectiveTransport === "cloudflare") {
@@ -444,6 +449,8 @@ export async function configureProject(
   ]);
   if (selected.includes("email") && effectiveTransport === "resend")
     needed.add("RESEND_API_KEY");
+  if (selected.includes("email") && effectiveTransport === "smtp")
+    needed.add("SMTP_URL");
   const declared = new Set(
     envBody.members.flatMap((member) =>
       ts.isPropertySignature(member) && member.name ? [key(member.name)] : [],

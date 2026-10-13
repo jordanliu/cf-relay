@@ -37,11 +37,11 @@ export function providerSettings(
 ) {
   const transport = options["email-transport"] ?? "cloudflare";
   if (
-    !["cloudflare", "resend"].includes(transport) ||
+    !["cloudflare", "resend", "smtp"].includes(transport) ||
     (options["email-transport"] && !selected.includes("email"))
   )
     throw new ToolError(
-      "--email-transport requires email and must be cloudflare or resend.",
+      "--email-transport requires email and must be cloudflare, resend, or smtp.",
     );
   const auth = options["webhook-auth"] ?? "signing";
   if (
@@ -83,7 +83,11 @@ export function providerSecrets(
   settings: ReturnType<typeof providerSettings>,
 ) {
   if (provider === "email")
-    return settings.transport === "resend" ? ["RESEND_API_KEY"] : [];
+    return settings.transport === "resend"
+      ? ["RESEND_API_KEY"]
+      : settings.transport === "smtp"
+        ? ["SMTP_URL"]
+        : [];
   if (provider === "webhook")
     return [
       "WEBHOOK_URL_V1",
@@ -95,4 +99,14 @@ export function providerSecrets(
         : []),
     ];
   return [`${provider.toUpperCase()}_WEBHOOK_V1`];
+}
+
+export function emailTransportCall(transport: string) {
+  const binding =
+    transport === "cloudflare"
+      ? "EMAIL"
+      : transport === "resend"
+        ? "RESEND_API_KEY"
+        : "SMTP_URL";
+  return `${transport}EmailTransport(env.${binding})`;
 }

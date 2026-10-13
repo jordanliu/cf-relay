@@ -327,6 +327,58 @@ describe("selected destinations and guided setup", () => {
     expect(report.missingSecrets).toEqual(["RESEND_API_KEY"]);
     expect((await readProject(directory)).wrangler.send_email).toBeUndefined();
   }, 15_000);
+  it("adds SMTP email without native bindings or unrelated credential requirements", async () => {
+    await init();
+    const original = await readProject(directory);
+    const report = await setupProject(directory, {
+      providers: "email",
+      "email-transport": "smtp",
+      from: "forms@acme.io",
+      to: "team@acme.io",
+    });
+    expect(report.requiredSecrets).toEqual(["SERVER_API_KEY", "SMTP_URL"]);
+    expect(report.missingSecrets).toEqual(["SMTP_URL"]);
+    const project = await readProject(directory);
+    expect(project.wrangler.send_email).toBeUndefined();
+    expect(project.wrangler.queues).toEqual(original.wrangler.queues);
+    expect(project.config.destinations.slack).toEqual(
+      original.config.destinations.slack,
+    );
+    expect(project.entrySource).toContain("smtpEmailTransport(env.SMTP_URL)");
+    const parsed = ts.readConfigFile(
+      join(root, "tsconfig.json"),
+      ts.sys.readFile,
+    );
+    const { options } = ts.parseJsonConfigFileContent(
+      parsed.config,
+      ts.sys,
+      root,
+    );
+    const program = ts.createProgram(
+      [
+        join(directory, "apps/worker/src/index.ts"),
+        join(directory, "apps/worker/worker-configuration.d.ts"),
+      ],
+      options,
+    );
+    expect(
+      ts
+        .getPreEmitDiagnostics(program)
+        .map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\n")),
+    ).toEqual([]);
+    const ui = prompts(
+      "smtps://private-user:private-password@smtp.acme.io:465",
+    );
+    expect((await setupProject(directory, {}, ui)).missingSecrets).toEqual([]);
+    expect(ui.secret).toHaveBeenCalledExactlyOnceWith("SMTP_URL");
+    await expect(
+      setupProject(directory, {
+        providers: "email",
+        "email-transport": "resend",
+      }),
+    ).rejects.toThrow(/shared by all forms/);
+  }, 30_000);
+
   it("generates distinct signing keys for destinations whose form names normalize alike", async () => {
     await init("slack,webhook");
     const path = join(directory, "apps/worker/relay.config.ts");

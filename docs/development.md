@@ -57,7 +57,7 @@ npm run init -- --mode browser --providers email --email-transport resend \
 | `--providers` | Comma-separated selection of `slack`, `discord`, `email`, `webhook` |
 | `--provider` | Legacy single-provider selection; cannot be combined with `--providers` |
 | `--webhook-auth` | `signing` (default), `bearer`, `both`, `none` |
-| `--email-transport` | `cloudflare` (default) or `resend` |
+| `--email-transport` | `cloudflare`, `resend`, `smtp` |
 | `--origin` | Exact browser origin without a path |
 | `--from`, `--to` | Email sender and comma-separated recipients |
 | `--name` | Worker name, also used for Queue names |
@@ -76,6 +76,7 @@ Combine the selected form and provider requirements:
 | Discord | `DISCORD_WEBHOOK_V1` | Webhook |
 | Native email | None for the transport | `EMAIL` binding, sending domain |
 | Resend | `RESEND_API_KEY` | Verified sending domain |
+| SMTP | `SMTP_URL` | TLS SMTP submission server, authorized sender |
 | Webhook | URL, optional signing key and bearer token | HTTPS receiver; [authentication and payload](webhooks.md) |
 
 Browser starters use Turnstile action `contact` and derive `expectedHostname` from `--origin`. Verify the generated rate-limit namespace is unique in your account.
@@ -141,25 +142,52 @@ Respect `AbortSignal`, bound response bodies, and use safe error codes. The disp
 
 ## Swap email transports
 
-Start with an email API configuration. Forms and destinations are unchanged when switching transports. For Resend, add `RESEND_API_KEY: string` to `WorkerEnv` and replace the native transport import and factory in [the entry point](../apps/worker/src/index.ts):
+For a new email configuration, select the transport during setup:
+
+```sh
+npm run setup -- --providers email --email-transport smtp \
+  --from forms@your-domain.com --to team@your-domain.com
+```
+
+| Transport | Import | Credential or binding |
+| --- | --- | --- |
+| Cloudflare Email Service | `@cf-relay/email-cloudflare` | `EMAIL` binding |
+| Resend | `@cf-relay/email-resend` | `RESEND_API_KEY` |
+| SMTP | `@cf-relay/email-smtp` | `SMTP_URL` |
+
+Existing Workers use one transport across all email destinations. To change it, update the import and factory in [the entry point](../apps/worker/src/index.ts), declare the secret in `WorkerEnv`, and follow the [revision and draining procedure](operations.md#revision-changes-and-draining). For SMTP:
 
 ```ts
-import { resendEmailTransport } from "@cf-relay/email-resend";
+import { smtpEmailTransport } from "@cf-relay/email-smtp";
 
 const relay = createCloudflareRelay(config, {
+  readinessGuard: apiKey({ secret: secret("SERVER_API_KEY") }),
   providerDependencies: {
     email: (env: WorkerEnv) => ({
-      transport: resendEmailTransport(env.RESEND_API_KEY),
+      transport: smtpEmailTransport(env.SMTP_URL),
     }),
   },
 });
 ```
 
-Keep the existing `createCloudflareRelay` and `config` imports. Remove an unused native `EMAIL` binding, regenerate types, verify the Resend sending domain, and set the credential:
+Keep the existing runtime, configuration, and guard imports. Remove unused native bindings only after pending jobs drain, then regenerate types and set the production secret:
 
 ```sh
-npx wrangler secret put RESEND_API_KEY
+npx wrangler secret put SMTP_URL
 ```
+
+### SMTP settings
+
+Setup collects `SMTP_URL` with hidden input. Keep it in ignored `.dev.vars` locally and a Worker secret in production.
+
+| URL | Connection |
+| --- | --- |
+| `smtps://username:password@smtp.your-domain.com:465` | Implicit TLS |
+| `smtp://username:password@smtp.your-domain.com:587` | Required STARTTLS |
+
+Percent-encode special characters in the username and password. Omit both for a relay that accepts unauthenticated TLS submissions. Authentication supports `PLAIN` and `LOGIN`; OAuth is not supported. TLS certificate verification remains enabled and encryption failures never fall back to plaintext.
+
+Use an authorized sender and a publicly reachable SMTP server. Workers block port 25 and private addresses; see [TCP socket limits](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/#considerations). SMTP confirms every recipient before transmitting the message. Temporary `4xx` responses and connection failures retry; permanent `5xx` responses fail. Acceptance requires the final `250` after message data, and a timeout can still mean acceptance is uncertain.
 
 ## Limits and rendering
 
@@ -182,7 +210,7 @@ Core validation and size checks run before a single Queue batch is published. Pr
 | Slack | Plain-text blocks, disabled unfurling, chunks up to 1,500 code points within 50 blocks; requires `200 ok`. [Reference](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/) |
 | Discord | Escaped markup, disabled mentions, bounded embeds; uses `wait=true` and requires a message ID. Aggregate content must fit 6,000 characters. [Reference](https://docs.discord.com/developers/resources/webhook#execute-webhook) |
 | Webhook | Versioned JSON, optional HMAC signing and bearer authentication; any `2xx` confirms acceptance. [Protocol](webhooks.md) |
-| Email | Escaped HTML, plain text, validated headers; requires a transport message ID. [Resend API](https://resend.com/docs/api-reference/emails/send-email) |
+| Email | Escaped HTML, plain text, validated headers; native/API message ID or confirmed SMTP acceptance. |
 
 ## Guard and runtime extensions
 

@@ -26,6 +26,7 @@ Choose any combination of providers. Adding a secret alone does not change routi
 | Discord | `--providers discord` | `DISCORD_WEBHOOK_V1` |
 | Cloudflare Email Service | `--providers email`, sender and recipients | `EMAIL` binding, verified sending domain |
 | Resend | Email with `--email-transport resend` | `RESEND_API_KEY`, verified sending domain |
+| SMTP | Email with `--email-transport smtp` | `SMTP_URL`, authorized sender and TLS submission server |
 | Webhook | `--providers webhook`, optional `--webhook-auth` | HTTPS URL, selected signing/bearer credentials |
 
 For dashboard deployments, work in the repository Cloudflare copied to your account. Supply the existing API key in `.dev.vars` or `RELAY_API_KEY` before setup:
@@ -84,7 +85,7 @@ For browser submissions, generate a `browser` API configuration and configure th
 
 Choose an account-unique rate-limit namespace unless shared counters are intentional. Rate limiting uses the form ID and a transient client-IP hash; it is distributed abuse protection, not an exact global quota. Local adapters must supply a trusted client identity. See [rate-limit bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
 
-For native email, [onboard the sending domain](https://developers.cloudflare.com/email-service/get-started/send-emails/) and restrict senders and recipients in the [`EMAIL` binding](https://developers.cloudflare.com/email-service/configuration/send-bindings/). For Resend, use the [transport guide](development.md#swap-email-transports).
+For native email, [onboard the sending domain](https://developers.cloudflare.com/email-service/get-started/send-emails/) and restrict senders and recipients in the [`EMAIL` binding](https://developers.cloudflare.com/email-service/configuration/send-bindings/). See the [transport guide](development.md#swap-email-transports) for Resend and [SMTP settings](development.md#smtp-settings) for TLS submission.
 
 ## Local development
 
